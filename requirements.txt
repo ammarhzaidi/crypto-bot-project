@@ -1,0 +1,10 @@
+pandas~=2.2.3
+numpy~=2.2.3
+requests~=2.32.3
+websocket-client~=1.8.0
+python-dotenv
+pyyaml~=6.0.2
+pandas-ta
+psutil
+pytest~=8.3.4
+schedule~=1.2.2

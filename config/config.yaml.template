@@ -1,0 +1,27 @@
+api:
+  okx:
+    base_url: "https://www.okx.com"
+    ws_url: "wss://ws.okx.com:8443/ws/v5/public"
+    api_key: ""
+    api_secret: ""
+    passphrase: ""
+
+trading:
+  min_volume: 50000
+  symbols: []
+  timeframe: "4h"
+
+indicators:
+  rsi_period: 14
+  ema_periods: [10, 50, 100, 200]
+
+email:
+  smtp_server: "smtp.gmail.com"
+  smtp_port: 587
+  sender_email: "immicryptoalerts@gmail.com"
+  sender_password: "nxvlmlvfdisvkdmw"
+  recipients: [immicryptoalerts@gmai.com]
+
+logging:
+  level: "INFO"
+  file: "logs/trading_bot.log"
