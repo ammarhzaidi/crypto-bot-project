@@ -5,6 +5,12 @@ import sys
 import os
 import time
 from datetime import datetime
+from src.analysis.analysis_service import (
+    AnalysisService,
+    HHHLAnalysisParams,
+    CandlestickAnalysisParams,
+    HHHLResult
+)
 
 # Add src to path for proper imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -107,6 +113,9 @@ class TabbedTradingBotGUI:
 
         # Initialize the OKX client
         self.client = OKXClient()
+
+        # Initialize the analysis service
+        self.analysis_service = AnalysisService(client=self.client, logger=self.log_hhhl)
 
         # Initialize the candlestick pattern finder
         self.pattern_finder = CandlestickPatternFinder()
@@ -518,233 +527,19 @@ class TabbedTradingBotGUI:
             self.update_hhhl_status("Fetching symbols...")
             self.log_hhhl(f"Starting HH/HL analysis with top {n_symbols} symbols, TP: {tp_percent}%, SL: {sl_percent}%")
 
-            # Get top symbols
-            self.log_hhhl("Fetching top volume symbols...")
-            symbols = self.client.get_top_volume_symbols(limit=n_symbols)
+            # Create analysis parameters
+            params = HHHLAnalysisParams(
+                symbols_count=n_symbols,
+                tp_percent=tp_percent,
+                sl_percent=sl_percent,
+                check_freshness=self.check_freshness.get()
+            )
 
-            if not symbols:
-                self.log_hhhl("No symbols found. Analysis failed.")
-                self.update_hhhl_status("Analysis failed - no symbols found")
-                self.running = False
-                return
+            # Run analysis through the service
+            result = self.analysis_service.run_hhhl_analysis(params)
 
-            self.log_hhhl(f"Found {len(symbols)} symbols")
-            self.log_hhhl(f"Fetched symbols: {symbols}")
-
-            # Analyze each symbol
-            uptrends = []
-            downtrends = []
-            no_trends = []
-
-            for i, symbol in enumerate(symbols):
-                self.update_hhhl_status(f"Analyzing {symbol} ({i + 1}/{len(symbols)})...")
-                self.log_hhhl(f"Analyzing {symbol}...")
-
-                # Get historical price data
-                klines = self.client.get_klines(symbol, interval="1h", limit=48)
-
-                if not klines:
-                    self.log_hhhl(f"No data available for {symbol}, skipping")
-                    continue
-
-                if symbol in ['BTC-USDT', 'ETH-USDT']:
-                    self.log_hhhl(f"Retrieved {len(klines)} klines for {symbol}")
-                    if klines:
-                        self.log_hhhl(f"First candle for {symbol}: {klines[0]}")
-
-                # Extract close prices
-                close_prices = [candle["close"] for candle in klines]
-
-                # Apply HH/HL strategy
-                result = analyze_price_action(close_prices, smoothing=1, consecutive_count=2)
-                if symbol in ['BTC-USDT', 'ETH-USDT']:
-                    self.log_hhhl(f"Analysis result for {symbol}: trend={result['trend']}")
-                    if result['trend'] == 'uptrend':
-                        self.log_hhhl(
-                            f"{symbol} uptrend details: HH={result['uptrend_analysis']['consecutive_hh']}, HL={result['uptrend_analysis']['consecutive_hl']}")
-                    elif result['trend'] == 'downtrend':
-                        self.log_hhhl(
-                            f"{symbol} downtrend details: LH={result['downtrend_analysis']['consecutive_lh']}, LL={result['downtrend_analysis']['consecutive_ll']}")
-                    else:
-                        self.log_hhhl(f"{symbol} shows no clear trend pattern")
-                trend = result["trend"]
-
-                # Get current price
-                ticker = self.client.get_ticker(symbol)
-                if not ticker or "last_price" not in ticker:
-                    self.log_hhhl(f"Could not get current price for {symbol}, skipping")
-                    continue
-
-                current_price = ticker["last_price"]
-
-                # Process results based on trend
-                if trend == "uptrend":
-                    hh_count = result["uptrend_analysis"]["consecutive_hh"]
-                    hl_count = result["uptrend_analysis"]["consecutive_hl"]
-                    pattern = f"{hh_count} HH, {hl_count} HL"
-
-                    # Calculate pattern strength (minimum of HH and HL count)
-                    pattern_strength = min(hh_count, hl_count)
-
-                    # Calculate TP/SL
-                    tp = calculate_take_profit(current_price, tp_percent)
-                    sl = calculate_stop_loss(current_price, sl_percent)
-
-                    volume_24h = ticker.get("volume_24h", 0) * current_price  # Convert to USD volume
-                    volume_24h_formatted = f"${volume_24h / 1000000:.2f}M" if volume_24h >= 1000000 else f"${volume_24h / 1000:.2f}K"
-
-                    # Add freshness calculation only when checkbox is checked
-                    if self.check_freshness.get():
-                        last_candle_index = len(close_prices) - 1
-                        latest_high_index = result["uptrend_analysis"]["peaks"][-1][0] if result["uptrend_analysis"][
-                            "peaks"] else 0
-                        latest_low_index = result["uptrend_analysis"]["troughs"][-1][0] if result["uptrend_analysis"][
-                            "troughs"] else 0
-                        freshness = last_candle_index - max(latest_high_index, latest_low_index)
-
-                        # Add data with freshness value
-                        uptrends.append((symbol, pattern, current_price, tp, sl, "BUY", pattern_strength, volume_24h_formatted, freshness))
-
-                        # Sort by pattern strength (3 consecutive patterns first, then 2)
-                        if self.check_freshness.get():
-                            # Sort by freshness first, then by strength
-                            uptrends.sort(key=lambda x: (
-                            x[8], -x[6]))  # Sort by freshness (low to high) then by strength (high to low)
-                        else:
-                            # Original sorting by pattern strength only
-                            uptrends.sort(key=lambda x: x[6], reverse=True)
-
-                    else:
-                        # Add data without freshness
-                        uptrends.append(
-                            (symbol, pattern, current_price, tp, sl, "BUY", pattern_strength, volume_24h_formatted))
-
-
-                elif trend == "downtrend":
-
-                    lh_count = result["downtrend_analysis"]["consecutive_lh"]
-
-                    ll_count = result["downtrend_analysis"]["consecutive_ll"]
-
-                    pattern = f"{lh_count} LH, {ll_count} LL"
-
-                    # Calculate pattern strength (minimum of LH and LL count)
-
-                    pattern_strength = min(lh_count, ll_count)
-
-                    # For shorts, TP is lower and SL is higher
-
-                    tp = current_price * (1 - tp_percent / 100)
-
-                    sl = current_price * (1 + sl_percent / 100)
-
-                    volume_24h = ticker.get("volume_24h", 0) * current_price  # Convert to USD volume
-
-                    volume_24h_formatted = f"${volume_24h / 1000000:.2f}M" if volume_24h >= 1000000 else f"${volume_24h / 1000:.2f}K"
-
-                    # Add freshness calculation only when checkbox is checked
-
-                    if self.check_freshness.get():
-
-                        last_candle_index = len(close_prices) - 1
-
-                        latest_high_index = result["downtrend_analysis"]["peaks"][-1][0] if \
-                        result["downtrend_analysis"]["peaks"] else 0
-
-                        latest_low_index = result["downtrend_analysis"]["troughs"][-1][0] if \
-                        result["downtrend_analysis"]["troughs"] else 0
-
-                        freshness = last_candle_index - max(latest_high_index, latest_low_index)
-
-                        # Add data with freshness value
-
-                        downtrends.append((symbol, pattern, current_price, tp, sl, "SELL", pattern_strength,
-                                           volume_24h_formatted, freshness))
-
-                    else:
-
-                        # Add data without freshness
-
-                        downtrends.append(
-                            (symbol, pattern, current_price, tp, sl, "SELL", pattern_strength, volume_24h_formatted))
-
-                # Update the downtrends sorting logic too
-
-                if self.check_freshness.get():
-
-                    # Sort by freshness first, then by strength
-
-                    downtrends.sort(
-                        key=lambda x: (x[8], -x[6]))  # Sort by freshness (low to high) then by strength (high to low)
-
-                else:
-
-                    # Original sorting by pattern strength only
-
-                    downtrends.sort(key=lambda x: x[6], reverse=True)
-
-            else:
-                # No clear trend
-                no_trends.append(symbol)
-                self.log_hhhl(f"➖ NO TREND: {symbol}")
-
-                # Small delay to avoid hammering the API
-            time.sleep(0.1)
-
-            # Sort by pattern strength (3 consecutive patterns first, then 2)
-            uptrends.sort(key=lambda x: x[6], reverse=True)
-            downtrends.sort(key=lambda x: x[6], reverse=True)
-
-            # Configure tags first
-            self.root.after(0, lambda: self.uptrends_treeview.tag_configure("strength3",
-                                                                            background="#d4ffcc"))  # Light green
-            self.root.after(0, lambda: self.uptrends_treeview.tag_configure("strength2", background="white"))
-            self.root.after(0, lambda: self.downtrends_treeview.tag_configure("strength3",
-                                                                              background="#ffcccc"))  # Light red
-            self.root.after(0, lambda: self.downtrends_treeview.tag_configure("strength2", background="white"))
-
-            # Update treeviews and listbox
-            for data in uptrends:
-                if self.check_freshness.get():
-                    # Full data with freshness
-                    display_data = data  # Use the entire tuple
-                else:
-                    # Remove freshness from display data
-                    display_data = data[:-1] if len(data) > 8 else data
-
-                strength = data[6]  # Pattern strength
-                tag = f"strength{min(strength, 3)}"  # Use strength3 tag for any strength >= 3
-
-                # Insert with appropriate tag
-                self.root.after(0, lambda d=display_data, t=tag:
-                self.uptrends_treeview.insert("", tk.END, values=self.format_values_with_freshness(d), tags=(t,)))
-
-            for data in downtrends:
-                # Remove pattern_strength from display data
-                if self.check_freshness.get():
-                    display_data = data  # Use the entire tuple
-                else:
-                    display_data = data[:-1] if len(data) > 8 else data
-
-                strength = data[6]  # Pattern strength
-                tag = f"strength{min(strength, 3)}"  # Use strength3 tag for any strength >= 3
-
-                # Insert with appropriate tag
-                self.root.after(0, lambda d=display_data, t=tag:
-                self.downtrends_treeview.insert("", tk.END, values=self.format_values_with_freshness(d), tags=(t,)))
-
-            for symbol in no_trends:
-                self.root.after(0, lambda s=symbol: self.notrends_listbox.insert(tk.END, s))
-
-                # Final timing
-            elapsed_time = time.time() - self.start_time
-            formatted_time = self.format_time(elapsed_time)
-
-            # Update status and log
-            self.update_hhhl_status(
-                f"Analysis complete in {formatted_time}. Found {len(uptrends)} uptrends, {len(downtrends)} downtrends, {len(no_trends)} no trends")
-            self.log_hhhl(
-                f"Analysis complete in {formatted_time}. Found {len(uptrends)} uptrends, {len(downtrends)} downtrends, {len(no_trends)} no trends")
+            # Update UI with results
+            self.update_hhhl_results(result)
 
         except Exception as e:
             self.log_hhhl(f"Error during analysis: {str(e)}")
@@ -755,6 +550,83 @@ class TabbedTradingBotGUI:
             elapsed_time = time.time() - self.start_time
             self.hhhl_timer_var.set(f"Time: {self.format_time(elapsed_time)}")
             self.running = False
+
+    def update_hhhl_results(self, result: HHHLResult):
+        """
+        Update the HH/HL results in the UI.
+
+        Args:
+            result: HH/HL analysis result
+        """
+        # Configure tags first
+        self.root.after(0, lambda: self.uptrends_treeview.tag_configure("strength3",
+                                                                        background="#d4ffcc"))  # Light green
+        self.root.after(0, lambda: self.uptrends_treeview.tag_configure("strength2", background="white"))
+        self.root.after(0, lambda: self.downtrends_treeview.tag_configure("strength3",
+                                                                          background="#ffcccc"))  # Light red
+        self.root.after(0, lambda: self.downtrends_treeview.tag_configure("strength2", background="white"))
+
+        # Update uptrends treeview
+        for data in result.uptrends:
+            # Format display data
+            symbol = data['symbol']
+            pattern = data['pattern']
+            price = data['price']
+            tp = data['tp']
+            sl = data['sl']
+            side = data['side']
+            strength = data['strength']
+            volume_formatted = data['volume_formatted']
+
+            # Create tuple for treeview
+            display_data = [symbol, pattern, price, tp, sl, side, volume_formatted]
+
+            # Add freshness if present
+            if 'freshness' in data and self.check_freshness.get():
+                display_data.append(str(data['freshness']))
+
+            tag = f"strength{min(strength, 3)}"  # Use strength3 tag for any strength >= 3
+
+            # Insert with appropriate tag
+            self.root.after(0, lambda d=display_data, t=tag:
+            self.uptrends_treeview.insert("", tk.END, values=self.format_values_with_freshness(d), tags=(t,)))
+
+        # Update downtrends treeview
+        for data in result.downtrends:
+            # Format display data
+            symbol = data['symbol']
+            pattern = data['pattern']
+            price = data['price']
+            tp = data['tp']
+            sl = data['sl']
+            side = data['side']
+            strength = data['strength']
+            volume_formatted = data['volume_formatted']
+
+            # Create tuple for treeview
+            display_data = [symbol, pattern, price, tp, sl, side, volume_formatted]
+
+            # Add freshness if present
+            if 'freshness' in data and self.check_freshness.get():
+                display_data.append(str(data['freshness']))
+
+            tag = f"strength{min(strength, 3)}"  # Use strength3 tag for any strength >= 3
+
+            # Insert with appropriate tag
+            self.root.after(0, lambda d=display_data, t=tag:
+            self.downtrends_treeview.insert("", tk.END, values=self.format_values_with_freshness(d), tags=(t,)))
+
+        # Update no trends listbox
+        for symbol in result.no_trends:
+            self.root.after(0, lambda s=symbol: self.notrends_listbox.insert(tk.END, s))
+
+        # Update status and log
+        formatted_time = self.format_time(result.execution_time)
+
+        self.update_hhhl_status(
+            f"Analysis complete in {formatted_time}. Found {len(result.uptrends)} uptrends, {len(result.downtrends)} downtrends, {len(result.no_trends)} no trends")
+        self.log_hhhl(
+            f"Analysis complete in {formatted_time}. Found {len(result.uptrends)} uptrends, {len(result.downtrends)} downtrends, {len(result.no_trends)} no trends")
 
     def run_candlestick_analysis(self):
         """Run the candlestick pattern analysis in a separate thread."""
@@ -996,16 +868,16 @@ class TabbedTradingBotGUI:
         Format values for display in treeview, including freshness if present.
 
         Args:
-            data: Tuple of data values
+            data: List of data values
 
         Returns:
             Tuple of formatted values
         """
         # Check if freshness is included in the data
-        has_freshness = len(data) > 8
+        has_freshness = len(data) > 7
 
         if has_freshness:
-            symbol, pattern, price, tp, sl, side, strength, volume_formatted, freshness = data
+            symbol, pattern, price, tp, sl, side, volume_formatted, freshness = data
         else:
             symbol, pattern, price, tp, sl, side, volume_formatted = data
 
@@ -1028,7 +900,7 @@ class TabbedTradingBotGUI:
 
         if has_freshness:
             # Return with freshness
-            return symbol, pattern, price_str, tp_str, sl_str, side, volume_formatted, str(freshness)
+            return symbol, pattern, price_str, tp_str, sl_str, side, volume_formatted, freshness
         else:
             # Return without freshness
             return symbol, pattern, price_str, tp_str, sl_str, side, volume_formatted
