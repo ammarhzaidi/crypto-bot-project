@@ -91,48 +91,38 @@ class OKXClient:
 
     def get_top_volume_symbols(self, limit: int = 30) -> List[str]:
         """
-        Fetch top trading pairs by 24h volume.
-
-        Args:
-            limit: Number of top volume symbols to return
-
-        Returns:
-            List of symbol strings
+        Fetch top trading pairs by 24h USD volume.
         """
-        # First get all available symbols
         all_symbols = self.get_all_symbols()
 
         if not all_symbols:
-            self.logger.error("Failed to fetch symbols")
             return []
 
-        # Create a list to store symbols with their volumes
+        # Store symbols with their USD volume
         symbol_volumes = []
 
-        # Get ticker data for each symbol
-        self.logger.info(f"Fetching volume data for {len(all_symbols)} symbols...")
-
+        # Process each symbol
         for symbol in all_symbols:
             try:
                 ticker = self.get_ticker(symbol)
 
-                # Skip if ticker data is incomplete
-                if not ticker or "volume_24h" not in ticker:
+                if not ticker or "volume_24h" not in ticker or "last_price" not in ticker:
                     continue
 
+                # Calculate USD volume
                 volume = ticker["volume_24h"]
-                symbol_volumes.append((symbol, volume))
+                price = ticker["last_price"]
+                usd_volume = volume * price
 
+                symbol_volumes.append((symbol, usd_volume))
             except Exception as e:
                 self.logger.error(f"Error getting volume for {symbol}: {str(e)}")
 
-        # Sort by volume (descending)
+        # Sort by USD volume
         symbol_volumes.sort(key=lambda x: x[1], reverse=True)
 
-        # Get top symbols by volume
+        # Get top symbols by USD volume
         top_symbols = [s[0] for s in symbol_volumes[:limit]]
-
-        self.logger.info(f"Successfully identified top {len(top_symbols)} symbols by volume")
 
         return top_symbols
 
