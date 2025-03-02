@@ -8,7 +8,8 @@ import time
 from dataclasses import dataclass
 from src.market_data.okx_client import OKXClient
 from src.analysis.hh_hl_analyzer import HHHLAnalyzer
-from src.strategies.candlestick_patterns import CandlestickPatternFinder
+from src.analysis.candlestick_analyzer import CandlestickAnalyzer
+from src.strategies.candlestick_patterns.finder import CandlestickPatternFinder
 
 @dataclass
 class HHHLAnalysisParams:
@@ -111,20 +112,21 @@ class AnalysisService:
         )
 
     def run_candlestick_analysis(self, params: CandlestickAnalysisParams) -> CandlestickResult:
-        """
-        Run candlestick pattern analysis.
-
-        Args:
-            params: Analysis parameters
-
-        Returns:
-            Analysis results
-        """
-        # We'll implement this later when we refactor the candlestick analysis
+        """Run candlestick pattern analysis."""
         start_time = time.time()
 
-        # Placeholder for now
+        symbols = self.client.get_top_volume_symbols(limit=params.symbols_count)
+
+        if not symbols:
+            return CandlestickResult(patterns=[], execution_time=time.time() - start_time)
+
+        analyzer = CandlestickAnalyzer(logger=self.logger)
+        patterns = analyzer.analyze_symbols(
+            symbols, self.client, timeframe=params.timeframe,
+            candles_count=params.candles_count, selected_patterns=params.patterns
+        )
+
         return CandlestickResult(
-            patterns=[],
+            patterns=patterns,
             execution_time=time.time() - start_time
         )

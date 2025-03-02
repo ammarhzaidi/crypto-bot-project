@@ -18,7 +18,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from src.market_data.okx_client import OKXClient
 from src.strategies.hh_hl_strategy import analyze_price_action
 from src.risk_management.position_sizer import calculate_take_profit, calculate_stop_loss
-from src.strategies.candlestick_patterns import CandlestickPatternFinder
+from src.strategies.candlestick_patterns.finder import CandlestickPatternFinder
 
 
 class TabbedTradingBotGUI:
