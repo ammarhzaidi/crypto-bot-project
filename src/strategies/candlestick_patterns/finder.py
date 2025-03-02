@@ -86,3 +86,30 @@ class CandlestickPatternFinder:
         if 'bullish_engulfing' in self.patterns:
             return self.patterns['bullish_engulfing'].find_patterns(df)
         return []
+
+
+# Add a simple test at the end of src/strategies/candlestick_patterns/finder.py
+if __name__ == "__main__":
+    # Create a simple test dataframe
+    import pandas as pd
+
+    # Create a sample dataframe with a bullish engulfing pattern
+    data = {
+        'timestamp': [pd.Timestamp('2023-01-01'), pd.Timestamp('2023-01-02')],
+        'open': [100, 95],
+        'high': [105, 110],
+        'low': [95, 94],
+        'close': [98, 108],
+        'volume': [1000, 1500]
+    }
+    df = pd.DataFrame(data)
+
+    # Create the pattern finder
+    finder = CandlestickPatternFinder()
+
+    # Find bullish engulfing patterns
+    patterns = finder.find_bullish_engulfing(df)
+
+    print(f"Found {len(patterns)} bullish engulfing patterns")
+    for pattern in patterns:
+        print(f"Pattern at index {pattern['index']}, strength: {pattern['strength']:.2f}")
