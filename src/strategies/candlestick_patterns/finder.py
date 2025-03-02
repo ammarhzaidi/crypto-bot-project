@@ -1,7 +1,9 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Type
 import pandas as pd
 import logging
+from .base_pattern import CandlestickPattern
 from .patterns.hammer import HammerPattern
+from .patterns.bullish_engulfing import BullishEngulfingPattern
 
 
 class CandlestickPatternFinder:
@@ -12,10 +14,39 @@ class CandlestickPatternFinder:
 
         # Register available patterns
         self.patterns = {
-            'hammer': HammerPattern()
+            'hammer': HammerPattern(),
+            'bullish_engulfing': BullishEngulfingPattern()
         }
 
-        # As you add more patterns, you can register them here or use auto-discovery
+        # Configuration for optional confirmations
+        self.confirmations = {
+            'bullish_engulfing': {
+                'use_volume_confirmation': False,
+                'use_prior_trend': False,
+                'use_size_significance': False
+            }
+        }
+
+    def set_pattern_confirmation(self, pattern_name: str, confirmation_name: str, enabled: bool):
+        """
+        Enable or disable a specific confirmation for a pattern.
+
+        Args:
+            pattern_name: Name of the pattern (e.g., 'bullish_engulfing')
+            confirmation_name: Name of the confirmation (e.g., 'use_volume_confirmation')
+            enabled: Whether the confirmation should be enabled
+        """
+        if pattern_name in self.confirmations and confirmation_name in self.confirmations[pattern_name]:
+            self.confirmations[pattern_name][confirmation_name] = enabled
+
+            # Update the pattern instance with new confirmation settings
+            if pattern_name == 'bullish_engulfing' and pattern_name in self.patterns:
+                # Create a new instance with updated settings
+                self.patterns[pattern_name] = BullishEngulfingPattern(
+                    use_volume_confirmation=self.confirmations[pattern_name]['use_volume_confirmation'],
+                    use_prior_trend=self.confirmations[pattern_name]['use_prior_trend'],
+                    use_size_significance=self.confirmations[pattern_name]['use_size_significance']
+                )
 
     def find_patterns(self, df: pd.DataFrame,
                       selected_patterns: Optional[List[str]] = None) -> List[Dict[str, Any]]:
@@ -48,4 +79,10 @@ class CandlestickPatternFinder:
         """Find hammer patterns in the dataframe."""
         if 'hammer' in self.patterns:
             return self.patterns['hammer'].find_patterns(df)
+        return []
+
+    def find_bullish_engulfing(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+        """Find bullish engulfing patterns in the dataframe."""
+        if 'bullish_engulfing' in self.patterns:
+            return self.patterns['bullish_engulfing'].find_patterns(df)
         return []
