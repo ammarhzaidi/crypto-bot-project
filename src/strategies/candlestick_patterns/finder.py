@@ -4,18 +4,51 @@ import logging
 from .base_pattern import CandlestickPattern
 from .patterns.hammer import HammerPattern
 from .patterns.bullish_engulfing import BullishEngulfingPattern
-from .patterns.piercing_pattern import PiercingPattern  # Add this line
+from .patterns.piercing_pattern import PiercingPattern
+from .patterns.morning_star import MorningStarPattern
 
 
 class CandlestickPatternFinder:
     """Finds candlestick patterns in price data."""
+
+    def __init__(self, logger=None):
+        if logger is not None and callable(logger):
+            self.logger = logger
+        else:
+            # Create a standard logger if not provided or not callable
+            self.logger = logging.getLogger('candlestick_finder')
+
+        # Register available patterns
+        self.patterns = {
+            'hammer': HammerPattern(),
+            'bullish_engulfing': BullishEngulfingPattern(),
+            'piercing': PiercingPattern(),
+            'morning_star': MorningStarPattern()
+        }
+
+        # Configuration for optional confirmations
+        self.confirmations = {
+            'bullish_engulfing': {
+                'use_volume_confirmation': False,
+                'use_prior_trend': False,
+                'use_size_significance': False
+            },
+            'piercing': {
+                'use_volume_confirmation': False,
+                'use_prior_trend': False
+            },
+            'morning_star': {
+                'use_volume_confirmation': False,
+                'use_prior_trend': False
+            }
+        }
 
     def set_pattern_confirmation(self, pattern_name: str, confirmation_name: str, enabled: bool):
         """
         Enable or disable a specific confirmation for a pattern.
 
         Args:
-            pattern_name: Name of the pattern (e.g., 'bullish_engulfing', 'piercing')
+            pattern_name: Name of the pattern (e.g., 'bullish_engulfing', 'piercing', 'morning_star')
             confirmation_name: Name of the confirmation (e.g., 'use_volume_confirmation')
             enabled: Whether the confirmation should be enabled
         """
@@ -36,6 +69,12 @@ class CandlestickPatternFinder:
                     use_volume_confirmation=self.confirmations[pattern_name]['use_volume_confirmation'],
                     use_prior_trend=self.confirmations[pattern_name]['use_prior_trend']
                 )
+            elif pattern_name == 'morning_star':
+                # Create a new instance with updated settings
+                self.patterns[pattern_name] = MorningStarPattern(
+                    use_volume_confirmation=self.confirmations[pattern_name]['use_volume_confirmation'],
+                    use_prior_trend=self.confirmations[pattern_name]['use_prior_trend']
+                )
 
             if hasattr(self, 'logger'):
                 if callable(self.logger):
@@ -44,60 +83,6 @@ class CandlestickPatternFinder:
                 elif hasattr(self.logger, 'info'):
                     # If it's a Logger object, call the info method
                     self.logger.info(f"Updated {pattern_name} with {confirmation_name}={enabled}")
-
-    def find_piercing(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
-        """Find piercing patterns in the dataframe."""
-        if 'piercing' in self.patterns:
-            return self.patterns['piercing'].find_patterns(df)
-        return []
-
-    def __init__(self, logger=None):
-        if logger is not None and callable(logger):
-            self.logger = logger
-        else:
-            # Create a standard logger if not provided or not callable
-            self.logger = logging.getLogger('candlestick_finder')
-
-        # Register available patterns
-        self.patterns = {
-            'hammer': HammerPattern(),
-            'bullish_engulfing': BullishEngulfingPattern(),
-            'piercing': PiercingPattern()  # Add the Piercing pattern
-        }
-
-        # Configuration for optional confirmations
-        self.confirmations = {
-            'bullish_engulfing': {
-                'use_volume_confirmation': False,
-                'use_prior_trend': False,
-                'use_size_significance': False
-            },
-            'piercing': {  # Add configuration for Piercing pattern
-                'use_volume_confirmation': False,
-                'use_prior_trend': False
-            }
-        }
-
-    # def set_pattern_confirmation(self, pattern_name: str, confirmation_name: str, enabled: bool):
-    #     """
-    #     Enable or disable a specific confirmation for a pattern.
-    #
-    #     Args:
-    #         pattern_name: Name of the pattern (e.g., 'bullish_engulfing')
-    #         confirmation_name: Name of the confirmation (e.g., 'use_volume_confirmation')
-    #         enabled: Whether the confirmation should be enabled
-    #     """
-    #     if pattern_name in self.confirmations and confirmation_name in self.confirmations[pattern_name]:
-    #         self.confirmations[pattern_name][confirmation_name] = enabled
-    #
-    #         # Update the pattern instance with new confirmation settings
-    #         if pattern_name == 'bullish_engulfing' and pattern_name in self.patterns:
-    #             # Create a new instance with updated settings
-    #             self.patterns[pattern_name] = BullishEngulfingPattern(
-    #                 use_volume_confirmation=self.confirmations[pattern_name]['use_volume_confirmation'],
-    #                 use_prior_trend=self.confirmations[pattern_name]['use_prior_trend'],
-    #                 use_size_significance=self.confirmations[pattern_name]['use_size_significance']
-    #             )
 
     def find_patterns(self, df: pd.DataFrame,
                       selected_patterns: Optional[List[str]] = None) -> List[Dict[str, Any]]:
@@ -138,29 +123,41 @@ class CandlestickPatternFinder:
             return self.patterns['bullish_engulfing'].find_patterns(df)
         return []
 
+    def find_piercing(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+        """Find piercing patterns in the dataframe."""
+        if 'piercing' in self.patterns:
+            return self.patterns['piercing'].find_patterns(df)
+        return []
 
-# Add a simple test at the end of src/strategies/candlestick_patterns/finder.py
+    def find_morning_stars(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+        """Find morning star patterns in the dataframe."""
+        if 'morning_star' in self.patterns:
+            return self.patterns['morning_star'].find_patterns(df)
+        return []
+
+
+# Add a simple test at the end
 if __name__ == "__main__":
     # Create a simple test dataframe
     import pandas as pd
 
-    # Create a sample dataframe with a bullish engulfing pattern
+    # Create a sample dataframe with a morning star pattern
     data = {
-        'timestamp': [pd.Timestamp('2023-01-01'), pd.Timestamp('2023-01-02')],
-        'open': [100, 95],
-        'high': [105, 110],
-        'low': [95, 94],
-        'close': [98, 108],
-        'volume': [1000, 1500]
+        'timestamp': [pd.Timestamp('2023-01-01'), pd.Timestamp('2023-01-02'), pd.Timestamp('2023-01-03')],
+        'open': [100, 85, 83],
+        'high': [105, 87, 95],
+        'low': [95, 80, 81],
+        'close': [97, 83, 93],
+        'volume': [1000, 800, 1500]
     }
     df = pd.DataFrame(data)
 
     # Create the pattern finder
     finder = CandlestickPatternFinder()
 
-    # Find bullish engulfing patterns
-    patterns = finder.find_bullish_engulfing(df)
+    # Find morning star patterns
+    patterns = finder.find_morning_stars(df)
 
-    print(f"Found {len(patterns)} bullish engulfing patterns")
+    print(f"Found {len(patterns)} morning star patterns")
     for pattern in patterns:
         print(f"Pattern at index {pattern['index']}, strength: {pattern['strength']:.2f}")

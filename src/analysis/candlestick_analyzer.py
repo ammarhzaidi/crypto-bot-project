@@ -132,15 +132,45 @@ class CandlestickAnalyzer:
 
                 # Piercing pattern detection
                 if 'piercing' in selected_patterns:
-                    # Placeholder for future implementation
-                    if self.logger:
-                        self.logger(f"Piercing pattern detection not yet implemented")
+                    piercing_patterns = self.pattern_finder.find_piercing(df)
+                    if piercing_patterns:
+                        patterns_found = True
+                        if self.logger:
+                            self.logger(f"Found {len(piercing_patterns)} piercing patterns for {symbol}")
+
+                        for pattern in piercing_patterns:
+                            # Add symbol, pattern type and volume
+                            pattern['symbol'] = symbol
+                            pattern['pattern_type'] = 'Piercing'
+                            pattern['usd_volume'] = usd_volume
+
+                            # Calculate quality rating based on strength
+                            pattern['quality'] = self._calculate_quality(pattern['strength'])
+
+                            all_patterns.append(pattern)
+                    elif self.logger:
+                        self.logger(f"No piercing patterns found for {symbol}")
 
                 # Morning Star pattern detection
                 if 'morning_star' in selected_patterns:
-                    # Placeholder for future implementation
-                    if self.logger:
-                        self.logger(f"Morning Star detection not yet implemented")
+                    morning_star_patterns = self.pattern_finder.find_morning_stars(df)
+                    if morning_star_patterns:
+                        patterns_found = True
+                        if self.logger:
+                            self.logger(f"Found {len(morning_star_patterns)} morning star patterns for {symbol}")
+
+                        for pattern in morning_star_patterns:
+                            # Add symbol, pattern type and volume
+                            pattern['symbol'] = symbol
+                            pattern['pattern_type'] = 'Morning Star'
+                            pattern['usd_volume'] = usd_volume
+
+                            # Calculate quality rating based on strength
+                            pattern['quality'] = self._calculate_quality(pattern['strength'])
+
+                            all_patterns.append(pattern)
+                    elif self.logger:
+                        self.logger(f"No morning star patterns found for {symbol}")
 
                 # Doji pattern detection
                 if 'doji' in selected_patterns:

@@ -163,6 +163,7 @@ class TabbedTradingBotGUI:
         # Configure scrollbar
         scrollbar.config(command=self.notrends_listbox.yview)
 
+
     def toggle_engulfing_confirmations(self):
         """Toggle display of Bullish Engulfing confirmation options."""
         # Check if Bullish Engulfing is selected
@@ -236,6 +237,47 @@ class TabbedTradingBotGUI:
             # If Piercing is deselected, hide the frame
             if self.piercing_conf_frame:
                 self.piercing_conf_frame.grid_remove()
+
+    def toggle_morning_star_confirmations(self):
+        """Toggle display of Morning Star pattern confirmation options."""
+        # Check if Morning Star is selected
+        if self.selected_patterns['morning_star'].get():
+            # Create frame if it doesn't exist
+            if not self.morning_star_conf_frame:
+                # Create frame for nested options
+                self.morning_star_conf_frame = ttk.Frame(self.patterns_frame, padding=(20, 0, 0, 0))
+                self.morning_star_conf_frame.grid(row=4, column=0, sticky=tk.W, padx=5, pady=2)
+
+                # Add confirmation checkboxes
+                ttk.Checkbutton(self.morning_star_conf_frame,
+                                text="Volume Confirmation",
+                                variable=self.morning_star_confirmations['volume']).grid(
+                    row=0, column=0, sticky=tk.W, padx=5, pady=2)
+
+                ttk.Checkbutton(self.morning_star_conf_frame,
+                                text="Prior Trend",
+                                variable=self.morning_star_confirmations['trend']).grid(
+                    row=1, column=0, sticky=tk.W, padx=5, pady=2)
+
+                # Add an info label to explain the pattern
+                info_text = ("Morning Star is a 3-candle bullish reversal pattern:\n"
+                             "1. A bearish (down) candle\n"
+                             "2. A small-bodied candle gapping down\n"
+                             "3. A bullish (up) candle closing into the first candle")
+
+                info_label = ttk.Label(self.morning_star_conf_frame,
+                                       text=info_text,
+                                       foreground="gray50",
+                                       font=("TkDefaultFont", 8, "italic"),
+                                       wraplength=200)
+                info_label.grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+            else:
+                # If frame exists but is hidden, show it
+                self.morning_star_conf_frame.grid()
+        else:
+            # If Morning Star is deselected, hide the frame
+            if self.morning_star_conf_frame:
+                self.morning_star_conf_frame.grid_remove()
 
     def create_candlestick_treeview(self, parent):
         """
@@ -345,6 +387,11 @@ class TabbedTradingBotGUI:
             'trend': tk.BooleanVar(value=False)
         }
         self.piercing_conf_frame = None
+
+        self.morning_star_confirmations = {
+             'volume': tk.BooleanVar(value=False),
+             'trend': tk.BooleanVar(value=False)
+        }
 
     def create_widgets(self):
         """Create all GUI widgets."""
