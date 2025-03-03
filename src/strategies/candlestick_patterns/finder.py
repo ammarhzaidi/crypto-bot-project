@@ -4,18 +4,65 @@ import logging
 from .base_pattern import CandlestickPattern
 from .patterns.hammer import HammerPattern
 from .patterns.bullish_engulfing import BullishEngulfingPattern
+from .patterns.piercing_pattern import PiercingPattern  # Add this line
 
 
 class CandlestickPatternFinder:
     """Finds candlestick patterns in price data."""
 
+    def set_pattern_confirmation(self, pattern_name: str, confirmation_name: str, enabled: bool):
+        """
+        Enable or disable a specific confirmation for a pattern.
+
+        Args:
+            pattern_name: Name of the pattern (e.g., 'bullish_engulfing', 'piercing')
+            confirmation_name: Name of the confirmation (e.g., 'use_volume_confirmation')
+            enabled: Whether the confirmation should be enabled
+        """
+        if pattern_name in self.confirmations and confirmation_name in self.confirmations[pattern_name]:
+            self.confirmations[pattern_name][confirmation_name] = enabled
+
+            # Update the pattern instance with new confirmation settings
+            if pattern_name == 'bullish_engulfing':
+                # Create a new instance with updated settings
+                self.patterns[pattern_name] = BullishEngulfingPattern(
+                    use_volume_confirmation=self.confirmations[pattern_name]['use_volume_confirmation'],
+                    use_prior_trend=self.confirmations[pattern_name]['use_prior_trend'],
+                    use_size_significance=self.confirmations[pattern_name]['use_size_significance']
+                )
+            elif pattern_name == 'piercing':
+                # Create a new instance with updated settings
+                self.patterns[pattern_name] = PiercingPattern(
+                    use_volume_confirmation=self.confirmations[pattern_name]['use_volume_confirmation'],
+                    use_prior_trend=self.confirmations[pattern_name]['use_prior_trend']
+                )
+
+            if hasattr(self, 'logger'):
+                if callable(self.logger):
+                    # If it's a function (like log_cs), call it
+                    self.logger(f"Updated {pattern_name} with {confirmation_name}={enabled}")
+                elif hasattr(self.logger, 'info'):
+                    # If it's a Logger object, call the info method
+                    self.logger.info(f"Updated {pattern_name} with {confirmation_name}={enabled}")
+
+    def find_piercing(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+        """Find piercing patterns in the dataframe."""
+        if 'piercing' in self.patterns:
+            return self.patterns['piercing'].find_patterns(df)
+        return []
+
     def __init__(self, logger=None):
-        self.logger = logger or logging.getLogger('candlestick_finder')
+        if logger is not None and callable(logger):
+            self.logger = logger
+        else:
+            # Create a standard logger if not provided or not callable
+            self.logger = logging.getLogger('candlestick_finder')
 
         # Register available patterns
         self.patterns = {
             'hammer': HammerPattern(),
-            'bullish_engulfing': BullishEngulfingPattern()
+            'bullish_engulfing': BullishEngulfingPattern(),
+            'piercing': PiercingPattern()  # Add the Piercing pattern
         }
 
         # Configuration for optional confirmations
@@ -24,29 +71,33 @@ class CandlestickPatternFinder:
                 'use_volume_confirmation': False,
                 'use_prior_trend': False,
                 'use_size_significance': False
+            },
+            'piercing': {  # Add configuration for Piercing pattern
+                'use_volume_confirmation': False,
+                'use_prior_trend': False
             }
         }
 
-    def set_pattern_confirmation(self, pattern_name: str, confirmation_name: str, enabled: bool):
-        """
-        Enable or disable a specific confirmation for a pattern.
-
-        Args:
-            pattern_name: Name of the pattern (e.g., 'bullish_engulfing')
-            confirmation_name: Name of the confirmation (e.g., 'use_volume_confirmation')
-            enabled: Whether the confirmation should be enabled
-        """
-        if pattern_name in self.confirmations and confirmation_name in self.confirmations[pattern_name]:
-            self.confirmations[pattern_name][confirmation_name] = enabled
-
-            # Update the pattern instance with new confirmation settings
-            if pattern_name == 'bullish_engulfing' and pattern_name in self.patterns:
-                # Create a new instance with updated settings
-                self.patterns[pattern_name] = BullishEngulfingPattern(
-                    use_volume_confirmation=self.confirmations[pattern_name]['use_volume_confirmation'],
-                    use_prior_trend=self.confirmations[pattern_name]['use_prior_trend'],
-                    use_size_significance=self.confirmations[pattern_name]['use_size_significance']
-                )
+    # def set_pattern_confirmation(self, pattern_name: str, confirmation_name: str, enabled: bool):
+    #     """
+    #     Enable or disable a specific confirmation for a pattern.
+    #
+    #     Args:
+    #         pattern_name: Name of the pattern (e.g., 'bullish_engulfing')
+    #         confirmation_name: Name of the confirmation (e.g., 'use_volume_confirmation')
+    #         enabled: Whether the confirmation should be enabled
+    #     """
+    #     if pattern_name in self.confirmations and confirmation_name in self.confirmations[pattern_name]:
+    #         self.confirmations[pattern_name][confirmation_name] = enabled
+    #
+    #         # Update the pattern instance with new confirmation settings
+    #         if pattern_name == 'bullish_engulfing' and pattern_name in self.patterns:
+    #             # Create a new instance with updated settings
+    #             self.patterns[pattern_name] = BullishEngulfingPattern(
+    #                 use_volume_confirmation=self.confirmations[pattern_name]['use_volume_confirmation'],
+    #                 use_prior_trend=self.confirmations[pattern_name]['use_prior_trend'],
+    #                 use_size_significance=self.confirmations[pattern_name]['use_size_significance']
+    #             )
 
     def find_patterns(self, df: pd.DataFrame,
                       selected_patterns: Optional[List[str]] = None) -> List[Dict[str, Any]]:

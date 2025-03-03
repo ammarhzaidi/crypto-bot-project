@@ -26,6 +26,117 @@ class TabbedTradingBotGUI:
     Enhanced GUI for the trading bot with tabbed interface.
     """
 
+    def update_candlestick_results(self, patterns):
+        """
+        Update the candlestick treeview with found patterns.
+
+        Args:
+            patterns: List of pattern dictionaries
+        """
+        # Clear existing items
+        for item in self.candlestick_treeview.get_children():
+            self.candlestick_treeview.delete(item)
+
+        # Store pattern data for tooltips
+        self.pattern_data = {}
+
+        for i, pattern in enumerate(patterns):
+            # Format values
+            symbol = pattern['symbol']
+            pattern_type = pattern['pattern_type']
+            price = f"${pattern['close']:.4f}"
+
+            # Format timestamp
+            timestamp = pattern['timestamp'].strftime("%Y-%m-%d %H:%M") if pattern['timestamp'] else "N/A"
+
+            is_bullish = "Yes" if pattern['is_bullish'] else "No"
+
+            # Determine quality based on strength
+            strength = pattern['strength']
+            if strength >= 0.7:
+                quality = "Good"
+                tag = "good"
+            elif strength >= 0.4:
+                quality = "Moderate"
+                tag = "moderate"
+            else:
+                quality = "Poor"
+                tag = "poor"
+
+            # Format volume
+            usd_volume = pattern.get('usd_volume', 0)
+            volume_formatted = f"${usd_volume / 1000000:.2f}M" if usd_volume >= 1000000 else f"${usd_volume / 1000:.2f}K"
+
+            # Insert into treeview
+            values = (symbol, pattern_type, price, timestamp, is_bullish, quality, volume_formatted)
+
+            # Insert the item
+            item_id = self.candlestick_treeview.insert("", tk.END, values=values, tags=(tag,))
+
+            # Store the pattern data for tooltip
+            self.pattern_data[item_id] = pattern
+
+        # Add bindings for tooltips after all items are inserted
+        if patterns:
+            self.add_pattern_tooltips()
+
+    def create_pattern_tooltip(self, pattern):
+        """Create a detailed tooltip for a pattern."""
+        tooltip_text = f"Symbol: {pattern['symbol']}\n"
+        tooltip_text += f"Pattern: {pattern['pattern_type']}\n"
+        tooltip_text += f"Price: ${pattern['close']:.4f}\n"
+        tooltip_text += f"Strength: {pattern['strength']:.2f}\n"
+
+        # Add bullish engulfing specific details
+        if pattern['pattern_type'] == 'Bullish Engulfing':
+            if 'confirmations_passed' in pattern and pattern['confirmations_passed']:
+                tooltip_text += f"Confirmations Passed: {', '.join(pattern['confirmations_passed'])}\n"
+            if 'confirmations_failed' in pattern and pattern['confirmations_failed']:
+                tooltip_text += f"Confirmations Failed: {', '.join(pattern['confirmations_failed'])}\n"
+            if 'size_ratio' in pattern:
+                tooltip_text += f"Size Ratio: {pattern['size_ratio']:.2f}\n"
+
+        # Add hammer specific details
+        if pattern['pattern_type'] == 'Hammer':
+            if 'body_percent' in pattern:
+                tooltip_text += f"Body Percent: {pattern['body_percent']:.2f}%\n"
+            if 'lower_shadow_ratio' in pattern:
+                tooltip_text += f"Lower Shadow Ratio: {pattern['lower_shadow_ratio']:.2f}\n"
+
+        return tooltip_text
+
+    def add_pattern_tooltips(self):
+        """Add tooltips to the pattern treeview items."""
+        for item_id in self.candlestick_treeview.get_children():
+            if item_id in self.pattern_data:
+                pattern = self.pattern_data[item_id]
+                tooltip_text = self.create_pattern_tooltip(pattern)
+
+                # Create tooltip for the item
+                item = self.candlestick_treeview.identify_row(
+                    self.candlestick_treeview.bbox(item_id)[1]
+                )
+
+                # This is a bit tricky with treeview - we need to bind to the item
+                # For simplicity, we'll bind to the whole treeview and check which item is under mouse
+                self.candlestick_treeview.bind("<Motion>", self.show_pattern_tooltip)
+
+    def show_pattern_tooltip(self, event):
+        """Show tooltip for pattern under mouse cursor."""
+        item = self.candlestick_treeview.identify_row(event.y)
+        if item and item in self.pattern_data:
+            # Create tooltip if it doesn't exist
+            if not hasattr(self, 'pattern_tooltip'):
+                self.pattern_tooltip = ToolTip(self.candlestick_treeview, "")
+
+            # Update tooltip text
+            tooltip_text = self.create_pattern_tooltip(self.pattern_data[item])
+            self.pattern_tooltip.update_text(tooltip_text)
+        else:
+            # Hide tooltip if mouse is not over an item
+            if hasattr(self, 'pattern_tooltip'):
+                self.pattern_tooltip.hidetip()
+
     def create_notrends_list(self, parent):
         """
         Create a listbox to display symbols with no clear trend.
@@ -51,6 +162,80 @@ class TabbedTradingBotGUI:
 
         # Configure scrollbar
         scrollbar.config(command=self.notrends_listbox.yview)
+
+    def toggle_engulfing_confirmations(self):
+        """Toggle display of Bullish Engulfing confirmation options."""
+        # Check if Bullish Engulfing is selected
+        if self.selected_patterns['bullish_engulfing'].get():
+            # Create frame if it doesn't exist
+            if not self.engulfing_conf_frame:
+                # Find the patterns_frame to add nested options
+                # (You'll need to create a reference to this in your init_candlestick_tab method)
+                self.engulfing_conf_frame = ttk.Frame(self.patterns_frame, padding=(20, 0, 0, 0))
+                self.engulfing_conf_frame.grid(row=2, column=0, sticky=tk.W, padx=5, pady=2)
+
+                # Add confirmation checkboxes
+                ttk.Checkbutton(self.engulfing_conf_frame,
+                                text="Volume Confirmation",
+                                variable=self.engulfing_confirmations['volume']).grid(
+                    row=0, column=0, sticky=tk.W, padx=5, pady=2)
+
+                ttk.Checkbutton(self.engulfing_conf_frame,
+                                text="Prior Trend",
+                                variable=self.engulfing_confirmations['trend']).grid(
+                    row=1, column=0, sticky=tk.W, padx=5, pady=2)
+
+                ttk.Checkbutton(self.engulfing_conf_frame,
+                                text="Size Significance",
+                                variable=self.engulfing_confirmations['size']).grid(
+                    row=2, column=0, sticky=tk.W, padx=5, pady=2)
+            else:
+                # If frame exists but is hidden, show it
+                self.engulfing_conf_frame.grid()
+        else:
+            # If Bullish Engulfing is deselected, hide the frame
+            if self.engulfing_conf_frame:
+                self.engulfing_conf_frame.grid_remove()
+
+    def toggle_piercing_confirmations(self):
+        """Toggle display of Piercing pattern confirmation options."""
+        # Check if Piercing is selected
+        if self.selected_patterns['piercing'].get():
+            # Create frame if it doesn't exist
+            if not self.piercing_conf_frame:
+                # Create frame for nested options
+                self.piercing_conf_frame = ttk.Frame(self.patterns_frame, padding=(20, 0, 0, 0))
+                self.piercing_conf_frame.grid(row=3, column=0, sticky=tk.W, padx=5, pady=2)
+
+                # Add confirmation checkboxes
+                ttk.Checkbutton(self.piercing_conf_frame,
+                                text="Volume Confirmation",
+                                variable=self.piercing_confirmations['volume']).grid(
+                    row=0, column=0, sticky=tk.W, padx=5, pady=2)
+
+                ttk.Checkbutton(self.piercing_conf_frame,
+                                text="Prior Trend",
+                                variable=self.piercing_confirmations['trend']).grid(
+                    row=1, column=0, sticky=tk.W, padx=5, pady=2)
+
+                # Add an info label to explain confirmations
+                info_text = ("These confirmations make pattern detection more strict.\n"
+                             "Volume Conf: Second candle has higher volume\n"
+                             "Prior Trend: Pattern appears after a downtrend")
+
+                info_label = ttk.Label(self.piercing_conf_frame,
+                                       text=info_text,
+                                       foreground="gray50",
+                                       font=("TkDefaultFont", 8, "italic"),
+                                       wraplength=200)
+                info_label.grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+            else:
+                # If frame exists but is hidden, show it
+                self.piercing_conf_frame.grid()
+        else:
+            # If Piercing is deselected, hide the frame
+            if self.piercing_conf_frame:
+                self.piercing_conf_frame.grid_remove()
 
     def create_candlestick_treeview(self, parent):
         """
@@ -147,6 +332,19 @@ class TabbedTradingBotGUI:
         self.running = False
         self.analysis_thread = None
         self.start_time = 0
+
+        self.engulfing_confirmations = {
+            'volume': tk.BooleanVar(value=False),
+            'trend': tk.BooleanVar(value=False),
+            'size': tk.BooleanVar(value=False)
+        }
+        self.engulfing_conf_frame = None
+
+        self.piercing_confirmations = {
+            'volume': tk.BooleanVar(value=False),
+            'trend': tk.BooleanVar(value=False)
+        }
+        self.piercing_conf_frame = None
 
     def create_widgets(self):
         """Create all GUI widgets."""
@@ -255,28 +453,37 @@ class TabbedTradingBotGUI:
         cs_control_frame.pack(fill=tk.X, pady=5)
 
         # Create patterns frame
-        patterns_frame = ttk.LabelFrame(cs_control_frame, text="Select Patterns")
-        patterns_frame.pack(fill=tk.X, pady=5, padx=5)
+        self.patterns_frame = ttk.LabelFrame(cs_control_frame, text="Select Patterns")
+        self.patterns_frame.pack(fill=tk.X, pady=5, padx=5)
 
         # Create grid for pattern checkboxes (2 columns)
-        patterns_frame.columnconfigure(0, weight=1)
-        patterns_frame.columnconfigure(1, weight=1)
+        self.patterns_frame.columnconfigure(0, weight=1)
+        self.patterns_frame.columnconfigure(1, weight=1)
 
         # Add pattern checkboxes
-        ttk.Checkbutton(patterns_frame, text="Hammer", variable=self.selected_patterns['hammer']).grid(
+        ttk.Checkbutton(self.patterns_frame, text="Hammer",
+                        variable=self.selected_patterns['hammer']).grid(
             row=0, column=0, sticky=tk.W, padx=5, pady=2)
 
-        ttk.Checkbutton(patterns_frame, text="Bullish Engulfing",
-                        variable=self.selected_patterns['bullish_engulfing']).grid(
-            row=1, column=0, sticky=tk.W, padx=5, pady=2)
+        # Bullish Engulfing with command to toggle nested options
+        bullish_engulfing_cb = ttk.Checkbutton(
+            self.patterns_frame,
+            text="Bullish Engulfing",
+            variable=self.selected_patterns['bullish_engulfing'],
+            command=self.toggle_engulfing_confirmations
+        )
+        bullish_engulfing_cb.grid(row=1, column=0, sticky=tk.W, padx=5, pady=2)
 
-        ttk.Checkbutton(patterns_frame, text="Piercing Pattern", variable=self.selected_patterns['piercing']).grid(
+        ttk.Checkbutton(self.patterns_frame, text="Piercing Pattern",
+                        variable=self.selected_patterns['piercing']).grid(
             row=2, column=0, sticky=tk.W, padx=5, pady=2)
 
-        ttk.Checkbutton(patterns_frame, text="Morning Star", variable=self.selected_patterns['morning_star']).grid(
+        ttk.Checkbutton(self.patterns_frame, text="Morning Star",
+                        variable=self.selected_patterns['morning_star']).grid(
             row=0, column=1, sticky=tk.W, padx=5, pady=2)
 
-        ttk.Checkbutton(patterns_frame, text="Doji", variable=self.selected_patterns['doji']).grid(
+        ttk.Checkbutton(self.patterns_frame, text="Doji",
+                        variable=self.selected_patterns['doji']).grid(
             row=1, column=1, sticky=tk.W, padx=5, pady=2)
 
         # Create settings frame
@@ -340,6 +547,16 @@ class TabbedTradingBotGUI:
         self.cs_timer_var.set("Time: 0s")
         cs_timer_label = ttk.Label(cs_status_frame, textvariable=self.cs_timer_var, relief=tk.SUNKEN, anchor=tk.E)
         cs_timer_label.grid(row=0, column=1, sticky=tk.E)
+
+        piercing_cb = ttk.Checkbutton(
+            self.patterns_frame,
+            text="Piercing Pattern",
+            variable=self.selected_patterns['piercing'],
+            command=self.toggle_piercing_confirmations
+        )
+        piercing_cb.grid(row=2, column=0, sticky=tk.W, padx=5, pady=2)
+
+
 
     def create_trends_treeview(self, parent, trend_type):
         """
@@ -711,30 +928,17 @@ class TabbedTradingBotGUI:
                     import pandas as pd
                     df = pd.DataFrame(klines)
 
-                    # Add this after getting the klines data in candlestick_analysis_task
-                    ticker = self.client.get_ticker(symbol)
-                    usd_volume = 0
-                    if ticker and "volume_24h" in ticker and "last_price" in ticker:
-                        usd_volume = ticker["volume_24h"] * ticker["last_price"]
-
-                    # Then when adding hammer patterns
-                    if 'hammer' in selected_pattern_names:
-                        hammers = self.pattern_finder.find_hammers(df)
-                        if hammers:
-                            patterns_found = True
-                            self.log_cs(f"Found {len(hammers)} hammer patterns for {symbol}")
-                            for hammer in hammers:
-                                # Add symbol, pattern type and volume
-                                hammer['symbol'] = symbol
-                                hammer['pattern_type'] = 'Hammer'
-                                hammer['usd_volume'] = usd_volume
-                                all_patterns.append(hammer)
-
                     # Check if data has required columns
                     if not all(col in df.columns for col in ['timestamp', 'open', 'high', 'low', 'close']):
                         self.log_cs(f"Data for {symbol} is missing required columns, skipping")
                         self.log_cs(f"Available columns: {df.columns.tolist()}")
                         continue
+
+                    # Get ticker data for volume
+                    ticker = self.client.get_ticker(symbol)
+                    usd_volume = 0
+                    if ticker and "volume_24h" in ticker and "last_price" in ticker:
+                        usd_volume = ticker["volume_24h"] * ticker["last_price"]
 
                     # Find patterns
                     patterns_found = False
@@ -746,15 +950,110 @@ class TabbedTradingBotGUI:
                             patterns_found = True
                             self.log_cs(f"Found {len(hammers)} hammer patterns for {symbol}")
                             for hammer in hammers:
-                                # Add symbol and pattern type
+                                # Add symbol, pattern type and volume
                                 hammer['symbol'] = symbol
                                 hammer['pattern_type'] = 'Hammer'
+                                hammer['usd_volume'] = usd_volume
                                 all_patterns.append(hammer)
                         else:
                             self.log_cs(f"No hammer patterns found for {symbol}")
 
-                    # Add more pattern detection here as they're implemented
-                    # For now, we have only hammer pattern, other patterns will be added later
+                    # Bullish Engulfing pattern detection
+                    if 'bullish_engulfing' in selected_pattern_names:
+                        # Configure pattern finder with selected confirmations
+                        volume_conf = self.engulfing_confirmations['volume'].get()
+                        trend_conf = self.engulfing_confirmations['trend'].get()
+                        size_conf = self.engulfing_confirmations['size'].get()
+
+                        # Log which confirmations are being used
+                        confirmation_msg = []
+                        if volume_conf:
+                            confirmation_msg.append("Volume Confirmation")
+                        if trend_conf:
+                            confirmation_msg.append("Prior Trend")
+                        if size_conf:
+                            confirmation_msg.append("Size Significance")
+
+                        if confirmation_msg:
+                            self.log_cs(f"Using Bullish Engulfing confirmations: {', '.join(confirmation_msg)}")
+
+                        # Configure the pattern finder with these settings
+                        self.pattern_finder.set_pattern_confirmation('bullish_engulfing', 'use_volume_confirmation',
+                                                                     volume_conf)
+                        self.pattern_finder.set_pattern_confirmation('bullish_engulfing', 'use_prior_trend', trend_conf)
+                        self.pattern_finder.set_pattern_confirmation('bullish_engulfing', 'use_size_significance',
+                                                                     size_conf)
+
+                        # Now find patterns with the configured settings
+                        engulfing_patterns = self.pattern_finder.find_bullish_engulfing(df)
+                        if engulfing_patterns:
+                            patterns_found = True
+                            self.log_cs(f"Found {len(engulfing_patterns)} bullish engulfing patterns for {symbol}")
+                            for pattern in engulfing_patterns:
+                                # Add symbol, pattern type and volume
+                                pattern['symbol'] = symbol
+                                pattern['pattern_type'] = 'Bullish Engulfing'
+                                pattern['usd_volume'] = usd_volume
+                                all_patterns.append(pattern)
+                        else:
+                            # Create a more informative message about why no patterns were found
+                            if volume_conf or trend_conf or size_conf:
+                                self.log_cs(
+                                    f"No bullish engulfing patterns found for {symbol} with selected confirmations")
+                            else:
+                                self.log_cs(f"No bullish engulfing patterns found for {symbol}")
+
+                    self.log_cs(f"Searching for piercing patterns with min penetration=0.5, max=1.0")
+                    self.log_cs(
+                        f"Pattern criteria: current opens below previous low, closes above midpoint but below previous open")
+
+                    # Piercing pattern detection
+                    if 'piercing' in selected_pattern_names:
+                        # Configure pattern finder with selected confirmations
+                        volume_conf = self.piercing_confirmations['volume'].get()
+                        trend_conf = self.piercing_confirmations['trend'].get()
+
+                        # Log which confirmations are being used
+                        confirmation_msg = []
+                        if volume_conf:
+                            confirmation_msg.append("Volume Confirmation")
+                        if trend_conf:
+                            confirmation_msg.append("Prior Trend")
+
+                        if confirmation_msg:
+                            self.log_cs(f"Using Piercing pattern confirmations: {', '.join(confirmation_msg)}")
+
+                        # Configure the pattern finder with these settings
+                        self.pattern_finder.set_pattern_confirmation('piercing', 'use_volume_confirmation', volume_conf)
+                        self.pattern_finder.set_pattern_confirmation('piercing', 'use_prior_trend', trend_conf)
+
+                        # Now find patterns with the configured settings
+                        piercing_patterns = self.pattern_finder.find_piercing(df)
+                        if piercing_patterns:
+                            patterns_found = True
+                            self.log_cs(f"Found {len(piercing_patterns)} piercing patterns for {symbol}")
+                            for pattern in piercing_patterns:
+                                # Add symbol, pattern type and volume
+                                pattern['symbol'] = symbol
+                                pattern['pattern_type'] = 'Piercing'
+                                pattern['usd_volume'] = usd_volume
+                                all_patterns.append(pattern)
+                        else:
+                            # Create a more informative message about why no patterns were found
+                            if volume_conf or trend_conf:
+                                self.log_cs(f"No piercing patterns found for {symbol} with selected confirmations")
+                            else:
+                                self.log_cs(f"No piercing patterns found for {symbol}")
+
+                    # Morning Star pattern detection
+                    if 'morning_star' in selected_pattern_names:
+                        # Placeholder for future implementation
+                        self.log_cs(f"Morning Star detection not yet implemented")
+
+                    # Doji pattern detection
+                    if 'doji' in selected_pattern_names:
+                        # Placeholder for future implementation
+                        self.log_cs(f"Doji detection not yet implemented")
 
                     if not patterns_found:
                         self.log_cs(f"No selected patterns found for {symbol}")
@@ -792,45 +1091,6 @@ class TabbedTradingBotGUI:
             elapsed_time = time.time() - self.start_time
             self.cs_timer_var.set(f"Time: {self.format_time(elapsed_time)}")
             self.running = False
-
-    def update_candlestick_results(self, patterns):
-        """
-        Update the candlestick treeview with found patterns.
-
-        Args:
-            patterns: List of pattern dictionaries
-        """
-        for pattern in patterns:
-            # Format values
-            symbol = pattern['symbol']
-            pattern_type = pattern['pattern_type']
-            price = f"${pattern['close']:.4f}"
-
-            # Format timestamp
-            timestamp = pattern['timestamp'].strftime("%Y-%m-%d %H:%M") if pattern['timestamp'] else "N/A"
-
-            is_bullish = "Yes" if pattern['is_bullish'] else "No"
-
-            # Determine quality based on strength
-            strength = pattern['strength']
-            if strength >= 0.7:
-                quality = "Good"
-                tag = "good"
-            elif strength >= 0.4:
-                quality = "Moderate"
-                tag = "moderate"
-            else:
-                quality = "Poor"
-                tag = "poor"
-
-            # Format volume
-            usd_volume = pattern.get('usd_volume', 0)
-            volume_formatted = f"${usd_volume / 1000000:.2f}M" if usd_volume >= 1000000 else f"${usd_volume / 1000:.2f}K"
-
-            # Insert into treeview
-            values = (symbol, pattern_type, price, timestamp, is_bullish, quality, volume_formatted)
-            self.root.after(0, lambda v=values, t=tag:
-            self.candlestick_treeview.insert("", tk.END, values=v, tags=(t,)))
 
     def format_values(self, data):
         """
@@ -910,6 +1170,70 @@ def main():
     root = tk.Tk()
     app = TabbedTradingBotGUI(root)
     root.mainloop()
+
+
+class ToolTip:
+    """
+    Simple tooltip for Tkinter widgets.
+    """
+
+    def __init__(self, widget, text='widget info'):
+        self.widget = widget
+        self.text = text
+        self.tipwindow = None
+        self.id = None
+        self.x = self.y = 0
+        self.widget.bind("<Enter>", self.enter)
+        self.widget.bind("<Leave>", self.leave)
+
+    def enter(self, event=None):
+        """Display the tooltip when mouse enters widget."""
+        self.schedule()
+
+    def leave(self, event=None):
+        """Hide the tooltip when mouse leaves widget."""
+        self.unschedule()
+        self.hidetip()
+
+    def schedule(self):
+        """Schedule tooltip to appear after a short delay."""
+        self.unschedule()
+        self.id = self.widget.after(500, self.showtip)
+
+    def unschedule(self):
+        """Cancel scheduled tooltip display."""
+        id = self.id
+        self.id = None
+        if id:
+            self.widget.after_cancel(id)
+
+    def showtip(self):
+        """Show the tooltip."""
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 10
+
+        # Create the top-level window
+        self.tipwindow = tw = tk.Toplevel(self.widget)
+        # Remove the window border
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+
+        # Create tooltip content
+        label = tk.Label(tw, text=self.text, justify=tk.LEFT,
+                         background="#ffffe0", relief=tk.SOLID, borderwidth=1,
+                         font=("tahoma", "8", "normal"))
+        label.pack(ipadx=1)
+
+    def hidetip(self):
+        """Hide the tooltip."""
+        tw = self.tipwindow
+        self.tipwindow = None
+        if tw:
+            tw.destroy()
+
+    def update_text(self, text):
+        """Update the tooltip text."""
+        self.text = text
 
 if __name__ == "__main__":
     main()

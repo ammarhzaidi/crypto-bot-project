@@ -1,4 +1,4 @@
-from strategies.candlestick_patterns.base_pattern import CandlestickPattern
+from src.strategies.candlestick_patterns.base_pattern import CandlestickPattern
 import pandas as pd
 from typing import List, Dict, Any
 from datetime import datetime, timezone

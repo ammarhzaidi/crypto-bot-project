@@ -102,15 +102,6 @@ class CandlestickAnalyzer:
                             hammer['pattern_type'] = 'Hammer'
                             hammer['usd_volume'] = usd_volume
 
-                            # Convert timestamp to Pakistan time zone if needed
-                            if 'timestamp' in hammer and hammer['timestamp']:
-                                try:
-                                    # Keep existing timezone conversion
-                                    pass
-                                except Exception as e:
-                                    if self.logger:
-                                        self.logger(f"Error converting timestamp: {e}")
-
                             # Calculate quality rating based on strength
                             hammer['quality'] = self._calculate_quality(hammer['strength'])
 
@@ -120,9 +111,24 @@ class CandlestickAnalyzer:
 
                 # Bullish Engulfing pattern detection
                 if 'bullish_engulfing' in selected_patterns:
-                    # Placeholder for future implementation
-                    if self.logger:
-                        self.logger(f"Bullish Engulfing detection not yet implemented")
+                    engulfing_patterns = self.pattern_finder.find_bullish_engulfing(df)
+                    if engulfing_patterns:
+                        patterns_found = True
+                        if self.logger:
+                            self.logger(f"Found {len(engulfing_patterns)} bullish engulfing patterns for {symbol}")
+
+                        for pattern in engulfing_patterns:
+                            # Add symbol, pattern type and volume
+                            pattern['symbol'] = symbol
+                            pattern['pattern_type'] = 'Bullish Engulfing'
+                            pattern['usd_volume'] = usd_volume
+
+                            # Calculate quality rating based on strength
+                            pattern['quality'] = self._calculate_quality(pattern['strength'])
+
+                            all_patterns.append(pattern)
+                    elif self.logger:
+                        self.logger(f"No bullish engulfing patterns found for {symbol}")
 
                 # Piercing pattern detection
                 if 'piercing' in selected_patterns:
