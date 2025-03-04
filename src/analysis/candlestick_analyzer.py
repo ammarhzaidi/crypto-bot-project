@@ -152,6 +152,7 @@ class CandlestickAnalyzer:
                         self.logger(f"No piercing patterns found for {symbol}")
 
                 # Morning Star pattern detection
+                # Morning Star pattern detection
                 if 'morning_star' in selected_patterns:
                     morning_star_patterns = self.pattern_finder.find_morning_stars(df)
                     if morning_star_patterns:
@@ -171,12 +172,6 @@ class CandlestickAnalyzer:
                             all_patterns.append(pattern)
                     elif self.logger:
                         self.logger(f"No morning star patterns found for {symbol}")
-
-                # Doji pattern detection
-                if 'doji' in selected_patterns:
-                    # Placeholder for future implementation
-                    if self.logger:
-                        self.logger(f"Doji detection not yet implemented")
 
                 if not patterns_found and self.logger:
                     self.logger(f"No selected patterns found for {symbol}")

@@ -15,17 +15,10 @@ class MorningStarPattern(CandlestickPattern):
                  middle_body_max_percent: float = 50.0,
                  use_volume_confirmation: bool = False,
                  use_prior_trend: bool = False,
-                 trend_periods: int = 5):
+                 trend_periods: int = 5,
+                 logger=None):  # Add logger parameter
         """
         Initialize Morning Star pattern detector with configurable parameters.
-
-        Args:
-            gap_percent_min: Minimum gap between first and second candle as percentage
-            third_candle_penetration_min: Minimum penetration of third candle into first candle's body (0.3 = 30%)
-            middle_body_max_percent: Maximum body size of the middle candle as percentage of its total range
-            use_volume_confirmation: Whether to require higher volume on third candle
-            use_prior_trend: Whether to require a prior downtrend
-            trend_periods: Number of periods to check for prior trend
         """
         self.gap_percent_min = gap_percent_min
         self.third_candle_penetration_min = third_candle_penetration_min
@@ -34,16 +27,13 @@ class MorningStarPattern(CandlestickPattern):
         self.use_prior_trend = use_prior_trend
         self.trend_periods = trend_periods
         self.pakistan_tz = pytz.timezone('Asia/Karachi')
+        self.logger = logger  # Store the logger
 
     @property
     def name(self) -> str:
         return "Morning Star"
 
     def find_patterns(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
-
-        if len(df) > 0:
-            self.logger(
-                f"First candlestick data: Open={df.iloc[0]['open']}, High={df.iloc[0]['high']}, Low={df.iloc[0]['low']}, Close={df.iloc[0]['close']}")
         """
         Find Morning Star patterns in the provided dataframe.
 
@@ -65,6 +55,13 @@ class MorningStarPattern(CandlestickPattern):
         # Need at least 3 candles for the Morning Star pattern
         if len(df) < 3:
             return []
+
+        # Check if logger exists and log first candle data
+        has_logger = hasattr(self, 'logger') and callable(self.logger)
+
+        if has_logger and len(df) > 0:
+            self.logger(
+                f"First candlestick data: Open={df.iloc[0]['open']}, High={df.iloc[0]['high']}, Low={df.iloc[0]['low']}, Close={df.iloc[0]['close']}")
 
         # Process each potential pattern (starting from the third candle)
         for i in range(2, len(df)):
@@ -276,14 +273,36 @@ class MorningStarPattern(CandlestickPattern):
                 # Skip any errors in individual candle processing
                 continue
 
-        if is_first_bearish:
-            self.logger(f"First candle is bearish at index {i - 2}")
-        else:
-            self.logger(f"Failed: First candle not bearish at index {i - 2}")
+        # Log pattern detection results if logger exists
+        if has_logger:
+            if is_first_bearish:
+                self.logger(f"First candle is bearish at index {i - 2}")
+            else:
+                self.logger(f"Failed: First candle not bearish at index {i - 2}")
 
-        if is_middle_small_body:
-            self.logger(f"Middle candle has small body ({middle_body_percent:.2f}%) at index {i - 1}")
-        else:
-            self.logger(f"Failed: Middle body too large ({middle_body_percent:.2f}%) at index {i - 1}")
+            if is_middle_small_body:
+                self.logger(f"Middle candle has small body ({middle_body_percent:.2f}%) at index {i - 1}")
+            else:
+                self.logger(f"Failed: Middle body too large ({middle_body_percent:.2f}%) at index {i - 1}")
+
+        return patterns
+
+        if hasattr(self, 'logger') and self.logger is not None:
+            if is_first_bearish:
+                self.logger(f"First candle is bearish at index {i - 2}")
+            else:
+                self.logger(f"Failed: First candle not bearish at index {i - 2}")
+
+        if hasattr(self, 'logger') and self.logger is not None:
+            if is_middle_small_body:
+                self.logger(f"Middle candle has small body ({middle_body_percent:.2f}%) at index {i - 1}")
+            else:
+                self.logger(f"Failed: Middle body too large ({middle_body_percent:.2f}%) at index {i - 1}")
+
+        if hasattr(self, 'logger') and self.logger is not None:
+            if is_first_bearish:
+                self.logger(f"First candle is bearish at index {i - 2}")
+            else:
+                self.logger(f"Failed: First candle not bearish at index {i - 2}")
 
         return patterns

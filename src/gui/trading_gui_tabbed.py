@@ -4,6 +4,7 @@ import threading
 import sys
 import os
 import time
+import traceback
 from datetime import datetime
 from src.analysis.analysis_service import (
     AnalysisService,
@@ -19,6 +20,71 @@ from src.market_data.okx_client import OKXClient
 from src.strategies.hh_hl_strategy import analyze_price_action
 from src.risk_management.position_sizer import calculate_take_profit, calculate_stop_loss
 from src.strategies.candlestick_patterns.finder import CandlestickPatternFinder
+from src.analysis.candlestick_analyzer import CandlestickAnalyzer
+
+
+class ToolTip:
+    """
+    Simple tooltip for Tkinter widgets.
+    """
+
+    def __init__(self, widget, text='widget info'):
+        self.widget = widget
+        self.text = text
+        self.tipwindow = None
+        self.id = None
+        self.x = self.y = 0
+        self.widget.bind("<Enter>", self.enter)
+        self.widget.bind("<Leave>", self.leave)
+
+    def enter(self, event=None):
+        """Display the tooltip when mouse enters widget."""
+        self.schedule()
+
+    def leave(self, event=None):
+        """Hide the tooltip when mouse leaves widget."""
+        self.unschedule()
+        self.hidetip()
+
+    def schedule(self):
+        """Schedule tooltip to appear after a short delay."""
+        self.unschedule()
+        self.id = self.widget.after(500, self.showtip)
+
+    def unschedule(self):
+        """Cancel scheduled tooltip display."""
+        id = self.id
+        self.id = None
+        if id:
+            self.widget.after_cancel(id)
+
+    def showtip(self):
+        """Show the tooltip."""
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 10
+
+        # Create the top-level window
+        self.tipwindow = tw = tk.Toplevel(self.widget)
+        # Remove the window border
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+
+        # Create tooltip content
+        label = tk.Label(tw, text=self.text, justify=tk.LEFT,
+                         background="#ffffe0", relief=tk.SOLID, borderwidth=1,
+                         font=("tahoma", "8", "normal"))
+        label.pack(ipadx=1)
+
+    def hidetip(self):
+        """Hide the tooltip."""
+        tw = self.tipwindow
+        self.tipwindow = None
+        if tw:
+            tw.destroy()
+
+    def update_text(self, text):
+        """Update the tooltip text."""
+        self.text = text
 
 
 class TabbedTradingBotGUI:
@@ -162,7 +228,6 @@ class TabbedTradingBotGUI:
 
         # Configure scrollbar
         scrollbar.config(command=self.notrends_listbox.yview)
-
 
     def toggle_engulfing_confirmations(self):
         """Toggle display of Bullish Engulfing confirmation options."""
@@ -344,8 +409,11 @@ class TabbedTradingBotGUI:
         # Initialize the analysis service
         self.analysis_service = AnalysisService(client=self.client, logger=self.log_hhhl)
 
+        # Initialize the candlestick analyzer
+        self.cs_analyzer = CandlestickAnalyzer(logger=self.log_cs)
+
         # Initialize the candlestick pattern finder
-        self.pattern_finder = CandlestickPatternFinder()
+        self.pattern_finder = CandlestickPatternFinder(logger=self.log_cs)
 
         # Set default values for HH/HL tab
         self.symbols_count = tk.IntVar(value=10)
@@ -375,6 +443,7 @@ class TabbedTradingBotGUI:
         self.analysis_thread = None
         self.start_time = 0
 
+        # Initialize confirmation frames
         self.engulfing_confirmations = {
             'volume': tk.BooleanVar(value=False),
             'trend': tk.BooleanVar(value=False),
@@ -389,9 +458,10 @@ class TabbedTradingBotGUI:
         self.piercing_conf_frame = None
 
         self.morning_star_confirmations = {
-             'volume': tk.BooleanVar(value=False),
-             'trend': tk.BooleanVar(value=False)
+            'volume': tk.BooleanVar(value=False),
+            'trend': tk.BooleanVar(value=False)
         }
+        self.morning_star_conf_frame = None
 
     def create_widgets(self):
         """Create all GUI widgets."""
@@ -441,7 +511,12 @@ class TabbedTradingBotGUI:
         sl_entry = ttk.Spinbox(control_frame, from_=0.1, to=10.0, increment=0.1, textvariable=self.sl_percent, width=10)
         sl_entry.grid(row=1, column=3, sticky=tk.W, padx=5, pady=5)
 
-        ttk.Checkbutton(control_frame, text="Prioritize Fresh Signals", variable=self.check_freshness).grid(row=2, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
+        ttk.Checkbutton(control_frame, text="Prioritize Fresh Signals", variable=self.check_freshness).grid(row=2,
+                                                                                                            column=0,
+                                                                                                            columnspan=2,
+                                                                                                            sticky=tk.W,
+                                                                                                            padx=5,
+                                                                                                            pady=5)
 
         # Add button to run analysis
         run_button = ttk.Button(control_frame, text="Run HH/HL Analysis", command=self.run_hhhl_analysis)
@@ -521,13 +596,23 @@ class TabbedTradingBotGUI:
         )
         bullish_engulfing_cb.grid(row=1, column=0, sticky=tk.W, padx=5, pady=2)
 
-        ttk.Checkbutton(self.patterns_frame, text="Piercing Pattern",
-                        variable=self.selected_patterns['piercing']).grid(
-            row=2, column=0, sticky=tk.W, padx=5, pady=2)
+        # Morning Star with command to toggle nested options
+        morning_star_cb = ttk.Checkbutton(
+            self.patterns_frame,
+            text="Morning Star",
+            variable=self.selected_patterns['morning_star'],
+            command=self.toggle_morning_star_confirmations
+        )
+        morning_star_cb.grid(row=0, column=1, sticky=tk.W, padx=5, pady=2)
 
-        ttk.Checkbutton(self.patterns_frame, text="Morning Star",
-                        variable=self.selected_patterns['morning_star']).grid(
-            row=0, column=1, sticky=tk.W, padx=5, pady=2)
+        # Piercing Pattern with command to toggle nested options
+        piercing_cb = ttk.Checkbutton(
+            self.patterns_frame,
+            text="Piercing Pattern",
+            variable=self.selected_patterns['piercing'],
+            command=self.toggle_piercing_confirmations
+        )
+        piercing_cb.grid(row=2, column=0, sticky=tk.W, padx=5, pady=2)
 
         ttk.Checkbutton(self.patterns_frame, text="Doji",
                         variable=self.selected_patterns['doji']).grid(
@@ -594,16 +679,6 @@ class TabbedTradingBotGUI:
         self.cs_timer_var.set("Time: 0s")
         cs_timer_label = ttk.Label(cs_status_frame, textvariable=self.cs_timer_var, relief=tk.SUNKEN, anchor=tk.E)
         cs_timer_label.grid(row=0, column=1, sticky=tk.E)
-
-        piercing_cb = ttk.Checkbutton(
-            self.patterns_frame,
-            text="Piercing Pattern",
-            variable=self.selected_patterns['piercing'],
-            command=self.toggle_piercing_confirmations
-        )
-        piercing_cb.grid(row=2, column=0, sticky=tk.W, padx=5, pady=2)
-
-
 
     def create_trends_treeview(self, parent, trend_type):
         """
@@ -1001,6 +1076,8 @@ class TabbedTradingBotGUI:
                                 hammer['symbol'] = symbol
                                 hammer['pattern_type'] = 'Hammer'
                                 hammer['usd_volume'] = usd_volume
+                                # Calculate quality rating
+                                hammer['quality'] = self.cs_analyzer._calculate_quality(hammer['strength'])
                                 all_patterns.append(hammer)
                         else:
                             self.log_cs(f"No hammer patterns found for {symbol}")
@@ -1041,6 +1118,8 @@ class TabbedTradingBotGUI:
                                 pattern['symbol'] = symbol
                                 pattern['pattern_type'] = 'Bullish Engulfing'
                                 pattern['usd_volume'] = usd_volume
+                                # Calculate quality rating
+                                pattern['quality'] = self.cs_analyzer._calculate_quality(pattern['strength'])
                                 all_patterns.append(pattern)
                         else:
                             # Create a more informative message about why no patterns were found
@@ -1050,12 +1129,12 @@ class TabbedTradingBotGUI:
                             else:
                                 self.log_cs(f"No bullish engulfing patterns found for {symbol}")
 
-                    self.log_cs(f"Searching for piercing patterns with min penetration=0.5, max=1.0")
-                    self.log_cs(
-                        f"Pattern criteria: current opens below previous low, closes above midpoint but below previous open")
-
                     # Piercing pattern detection
                     if 'piercing' in selected_pattern_names:
+                        self.log_cs(f"Searching for piercing patterns with min penetration=0.5, max=1.0")
+                        self.log_cs(
+                            f"Pattern criteria: current opens below previous low, closes above midpoint but below previous open")
+
                         # Configure pattern finder with selected confirmations
                         volume_conf = self.piercing_confirmations['volume'].get()
                         trend_conf = self.piercing_confirmations['trend'].get()
@@ -1084,6 +1163,8 @@ class TabbedTradingBotGUI:
                                 pattern['symbol'] = symbol
                                 pattern['pattern_type'] = 'Piercing'
                                 pattern['usd_volume'] = usd_volume
+                                # Calculate quality rating
+                                pattern['quality'] = self.cs_analyzer._calculate_quality(pattern['strength'])
                                 all_patterns.append(pattern)
                         else:
                             # Create a more informative message about why no patterns were found
@@ -1094,8 +1175,44 @@ class TabbedTradingBotGUI:
 
                     # Morning Star pattern detection
                     if 'morning_star' in selected_pattern_names:
-                        # Placeholder for future implementation
-                        self.log_cs(f"Morning Star detection not yet implemented")
+                        self.log_cs(f"DEBUG: Entering Morning Star pattern detection section")
+
+                        # Configure pattern finder with selected confirmations
+                        if hasattr(self, 'morning_star_confirmations'):
+                            volume_conf = self.morning_star_confirmations['volume'].get()
+                            trend_conf = self.morning_star_confirmations['trend'].get()
+
+                            # Configure the pattern finder with these settings
+                            self.pattern_finder.set_pattern_confirmation('morning_star', 'use_volume_confirmation',
+                                                                         volume_conf)
+                            self.pattern_finder.set_pattern_confirmation('morning_star', 'use_prior_trend', trend_conf)
+
+                        try:
+                            # Find Morning Star patterns
+                            morning_star_patterns = self.pattern_finder.find_morning_stars(df)
+                            self.log_cs(f"DEBUG: Morning Star pattern detection returned: {morning_star_patterns}")
+
+                            if morning_star_patterns:
+                                patterns_found = True
+                                self.log_cs(f"Found {len(morning_star_patterns)} morning star patterns for {symbol}")
+
+                                for pattern in morning_star_patterns:
+                                    try:
+                                        # Add symbol, pattern type and volume
+                                        pattern['symbol'] = symbol
+                                        pattern['pattern_type'] = 'Morning Star'
+                                        pattern['usd_volume'] = usd_volume
+                                        # Calculate quality rating
+                                        pattern['quality'] = self.cs_analyzer._calculate_quality(pattern['strength'])
+                                        all_patterns.append(pattern)
+                                    except Exception as e:
+                                        self.log_cs(f"ERROR processing Morning Star pattern: {str(e)}")
+                                        self.log_cs(f"Traceback:\n{traceback.format_exc()}")
+                            else:
+                                self.log_cs(f"No morning star patterns found for {symbol}")
+                        except Exception as e:
+                            self.log_cs(f"ERROR in Morning Star detection: {str(e)}")
+                            self.log_cs(f"Traceback:\n{traceback.format_exc()}")
 
                     # Doji pattern detection
                     if 'doji' in selected_pattern_names:
@@ -1107,6 +1224,7 @@ class TabbedTradingBotGUI:
 
                 except Exception as e:
                     self.log_cs(f"Error analyzing {symbol}: {str(e)}")
+                    self.log_cs(f"Traceback:\n{traceback.format_exc()}")
 
                 # Small delay to avoid hammering the API
                 time.sleep(0.2)
@@ -1131,6 +1249,7 @@ class TabbedTradingBotGUI:
 
         except Exception as e:
             self.log_cs(f"Error during analysis: {str(e)}")
+            self.log_cs(f"Traceback:\n{traceback.format_exc()}")
             self.update_cs_status("Analysis failed")
 
         finally:
@@ -1212,75 +1331,13 @@ class TabbedTradingBotGUI:
             # Return without freshness
             return symbol, pattern, price_str, tp_str, sl_str, side, volume_formatted
 
+
+
 def main():
     """Main entry point for the GUI application."""
     root = tk.Tk()
     app = TabbedTradingBotGUI(root)
     root.mainloop()
-
-
-class ToolTip:
-    """
-    Simple tooltip for Tkinter widgets.
-    """
-
-    def __init__(self, widget, text='widget info'):
-        self.widget = widget
-        self.text = text
-        self.tipwindow = None
-        self.id = None
-        self.x = self.y = 0
-        self.widget.bind("<Enter>", self.enter)
-        self.widget.bind("<Leave>", self.leave)
-
-    def enter(self, event=None):
-        """Display the tooltip when mouse enters widget."""
-        self.schedule()
-
-    def leave(self, event=None):
-        """Hide the tooltip when mouse leaves widget."""
-        self.unschedule()
-        self.hidetip()
-
-    def schedule(self):
-        """Schedule tooltip to appear after a short delay."""
-        self.unschedule()
-        self.id = self.widget.after(500, self.showtip)
-
-    def unschedule(self):
-        """Cancel scheduled tooltip display."""
-        id = self.id
-        self.id = None
-        if id:
-            self.widget.after_cancel(id)
-
-    def showtip(self):
-        """Show the tooltip."""
-        x = self.widget.winfo_rootx() + 20
-        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 10
-
-        # Create the top-level window
-        self.tipwindow = tw = tk.Toplevel(self.widget)
-        # Remove the window border
-        tw.wm_overrideredirect(True)
-        tw.wm_geometry(f"+{x}+{y}")
-
-        # Create tooltip content
-        label = tk.Label(tw, text=self.text, justify=tk.LEFT,
-                         background="#ffffe0", relief=tk.SOLID, borderwidth=1,
-                         font=("tahoma", "8", "normal"))
-        label.pack(ipadx=1)
-
-    def hidetip(self):
-        """Hide the tooltip."""
-        tw = self.tipwindow
-        self.tipwindow = None
-        if tw:
-            tw.destroy()
-
-    def update_text(self, text):
-        """Update the tooltip text."""
-        self.text = text
 
 if __name__ == "__main__":
     main()
