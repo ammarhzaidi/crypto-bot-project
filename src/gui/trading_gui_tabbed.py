@@ -9,7 +9,6 @@ from datetime import datetime
 from src.analysis.analysis_service import (
     AnalysisService,
     HHHLAnalysisParams,
-    CandlestickAnalysisParams,
     HHHLResult
 )
 
@@ -17,10 +16,9 @@ from src.analysis.analysis_service import (
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from src.market_data.okx_client import OKXClient
-from src.strategies.hh_hl_strategy import analyze_price_action
-from src.risk_management.position_sizer import calculate_take_profit, calculate_stop_loss
 from src.strategies.candlestick_patterns.finder import CandlestickPatternFinder
 from src.analysis.candlestick_analyzer import CandlestickAnalyzer
+from src.gui.backtest_module import create_backtest_tab
 
 
 class ToolTip:
@@ -463,6 +461,11 @@ class TabbedTradingBotGUI:
         }
         self.morning_star_conf_frame = None
 
+    # To integrate the backtest tab in your trading_gui_tabbed.py file, add these imports near the top:
+
+    # Then modify your create_widgets method in the TabbedTradingBotGUI class
+    # to add the backtest tab to your notebook:
+
     def create_widgets(self):
         """Create all GUI widgets."""
         # Create main frame with padding
@@ -479,6 +482,9 @@ class TabbedTradingBotGUI:
 
         self.notebook.add(self.hhhl_tab, text="HH/HL Strategy")
         self.notebook.add(self.candlestick_tab, text="Candlestick Finder")
+
+        # Add backtest tab
+        self.backtest_tab = create_backtest_tab(self.notebook, client=self.client)
 
         # Initialize both tabs
         self.init_hhhl_tab()
