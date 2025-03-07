@@ -20,7 +20,7 @@ from src.strategies.candlestick_patterns.finder import CandlestickPatternFinder
 from src.analysis.candlestick_analyzer import CandlestickAnalyzer
 from src.gui.backtest_module import create_backtest_tab
 from src.gui.top_movers_tab import TopMoversTab
-
+from src.gui.news_tab import NewsTab
 
 
 class ToolTip:
@@ -492,6 +492,12 @@ class TabbedTradingBotGUI:
         top_movers_frame = ttk.Frame(self.notebook)
         self.top_movers_tab = TopMoversTab(top_movers_frame, client=self.client)
         self.notebook.add(top_movers_frame, text="Top Movers")
+
+        # Add news tab - NEW CODE
+        news_frame = ttk.Frame(self.notebook)
+        from src.gui.news_tab import NewsTab  # Import should be at the top in actual code
+        self.news_tab = NewsTab(news_frame)
+        self.notebook.add(news_frame, text="Crypto News")
 
         # Initialize both tabs
         self.init_hhhl_tab()
