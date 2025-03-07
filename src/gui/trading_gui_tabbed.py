@@ -19,6 +19,8 @@ from src.market_data.okx_client import OKXClient
 from src.strategies.candlestick_patterns.finder import CandlestickPatternFinder
 from src.analysis.candlestick_analyzer import CandlestickAnalyzer
 from src.gui.backtest_module import create_backtest_tab
+from src.gui.top_movers_tab import TopMoversTab
+
 
 
 class ToolTip:
@@ -485,6 +487,11 @@ class TabbedTradingBotGUI:
 
         # Add backtest tab
         self.backtest_tab = create_backtest_tab(self.notebook, client=self.client)
+
+        # Add top movers tab
+        top_movers_frame = ttk.Frame(self.notebook)
+        self.top_movers_tab = TopMoversTab(top_movers_frame, client=self.client)
+        self.notebook.add(top_movers_frame, text="Top Movers")
 
         # Initialize both tabs
         self.init_hhhl_tab()

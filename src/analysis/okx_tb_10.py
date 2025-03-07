@@ -49,7 +49,7 @@ class OKXMarketAnalyzer:
         """
         for base_url in self.base_urls:
             try:
-                # Try markets/price-overview endpoint
+                # Use the tickers endpoint which we know works
                 url = f"{base_url}/api/v5/market/tickers"
                 params = {"instType": "SPOT"}
 
@@ -67,39 +67,47 @@ class OKXMarketAnalyzer:
                     if data.get("code") == "0" and data.get("data"):
                         # Process the data
                         processed_data = []
+                        raw_count = len(data["data"])
+                        self.logger.info(f"Raw data items received: {raw_count}")
+
+                        usdt_count = 0
                         for item in data["data"]:
                             # Only include USDT pairs
                             if not item["instId"].endswith("-USDT"):
                                 continue
+                            usdt_count += 1
 
                             try:
-                                change_24h = float(item.get("change24h", "0").replace("%", ""))
-
-                                # Skip pairs without change data
-                                if change_24h == 0 and "change24h" not in item:
-                                    continue
-
-                                # Extract volume
-                                volume_24h = float(item.get("vol24h", 0))
-
                                 # Extract current price
                                 last_price = float(item.get("last", 0))
 
-                                # We don't have market cap in the API response, so we'll fetch it separately
-                                # or use volume as a proxy for now
+                                # Calculate 24h change using open24h price
+                                change_24h = 0
+                                if "open24h" in item and item["open24h"] and float(item["open24h"]) > 0:
+                                    open_price = float(item["open24h"])
+                                    change_24h = ((last_price - open_price) / open_price) * 100
+
+                                # Extract volume - this is base volume, not quote (USDT) volume
+                                volume_usd = 0
+                                if "volCcy24h" in item:
+                                    volume_usd = float(item["volCcy24h"])
+                                elif "vol24h" in item:
+                                    # vol24h is in base currency, multiply by price for USD value
+                                    volume_usd = float(item["vol24h"]) * last_price
 
                                 processed_data.append({
                                     "symbol": item["instId"].replace("-USDT", ""),
                                     "price": last_price,
                                     "change_24h": change_24h,
-                                    "volume_24h": volume_24h,
+                                    "volume_24h": volume_usd,
                                     "timestamp": datetime.now().isoformat()
                                 })
                             except (ValueError, KeyError) as e:
                                 self.logger.error(f"Error processing data for {item.get('instId')}: {str(e)}")
                                 continue
 
-                        self.logger.info(f"Successfully fetched data for {len(processed_data)} symbols")
+                        self.logger.info(
+                            f"Found {usdt_count} USDT pairs, processed {len(processed_data)} symbols with valid data")
                         return processed_data
                     else:
                         self.logger.error(f"API returned error: {data.get('msg', 'Unknown error')}")
@@ -119,7 +127,7 @@ class OKXMarketAnalyzer:
         Get the top gainers and losers based on 24h price change.
 
         Args:
-            limit: Number of top gainers/losers to return
+            limit: Number of top gainers/losers to return (default: 10)
 
         Returns:
             Tuple of (top_gainers, top_losers) as pandas DataFrames
@@ -132,32 +140,28 @@ class OKXMarketAnalyzer:
 
         # Convert to DataFrame for easier manipulation
         df = pd.DataFrame(data)
+        self.logger.info(f"DataFrame created with {len(df)} rows")
 
-        # Apply filters if we have market cap data
-        # Since we don't have it from the API, we'll just use volume for now
+        # Apply volume filter
         filtered_df = df[df['volume_24h'] >= self.min_volume].copy()
+        self.logger.info(f"After volume filter: {len(filtered_df)} rows remain")
 
         # If no data after filtering
         if filtered_df.empty:
             self.logger.warning("No data left after applying filters. Reducing minimum requirements.")
             # Try with lower requirements
             filtered_df = df.copy()
+            self.logger.info(f"Using all data without filtering: {len(filtered_df)} rows")
 
         # Sort by change_24h
         filtered_df.sort_values('change_24h', ascending=False, inplace=True)
 
-        # Get top gainers and losers
-        top_gainers = filtered_df.head(limit).copy()
-        top_losers = filtered_df.tail(limit).sort_values('change_24h', ascending=True).copy()
+        # Enforce the actual limit from the parameter
+        top_gainers = filtered_df.head(limit).copy() if len(filtered_df) > 0 else pd.DataFrame()
+        top_losers = filtered_df.tail(limit).sort_values('change_24h', ascending=True).copy() if len(
+            filtered_df) > 0 else pd.DataFrame()
 
-        # Store the data with timestamp for later comparison
-        timestamp = datetime.now().isoformat()
-
-        # Store historical data for comparison
-        self.historical_data[timestamp] = filtered_df
-
-        # Clean up old data (keep only last 24 hours)
-        self._cleanup_historical_data()
+        self.logger.info(f"Selected {len(top_gainers)} top gainers and {len(top_losers)} top losers")
 
         return top_gainers, top_losers
 
@@ -192,6 +196,23 @@ class OKXMarketAnalyzer:
         """
         current_gainers, current_losers = self.get_top_gainers_losers()
 
+        # If we don't have historical data for comparison, just return current data
+        if len(self.historical_data) == 0:
+            self.logger.warning(f"No historical data available for comparison")
+
+            # Create comparison columns with the same values as current
+            if not current_gainers.empty:
+                current_gainers['change_24h_current'] = current_gainers['change_24h']
+                current_gainers['change_24h_previous'] = current_gainers['change_24h']
+                current_gainers['acceleration'] = 0.0
+
+            if not current_losers.empty:
+                current_losers['change_24h_current'] = current_losers['change_24h']
+                current_losers['change_24h_previous'] = current_losers['change_24h']
+                current_losers['acceleration'] = 0.0
+
+            return current_gainers, current_losers
+
         # Find closest historical data point
         closest_timestamp = None
         closest_time_diff = float('inf')
@@ -210,39 +231,88 @@ class OKXMarketAnalyzer:
 
         if not closest_timestamp or closest_time_diff > hours_ago * 0.5:  # If no data within 50% of requested time
             self.logger.warning(f"No historical data found from approximately {hours_ago} hours ago")
+
+            # Create comparison columns with the same values as current
+            if not current_gainers.empty:
+                current_gainers['change_24h_current'] = current_gainers['change_24h']
+                current_gainers['change_24h_previous'] = current_gainers['change_24h']
+                current_gainers['acceleration'] = 0.0
+
+            if not current_losers.empty:
+                current_losers['change_24h_current'] = current_losers['change_24h']
+                current_losers['change_24h_previous'] = current_losers['change_24h']
+                current_losers['acceleration'] = 0.0
+
             return current_gainers, current_losers
 
         # Get historical data
         historical_df = self.historical_data[closest_timestamp]
 
-        # Merge current and historical data
-        gainers_symbols = current_gainers['symbol'].tolist()
-        losers_symbols = current_losers['symbol'].tolist()
+        # Extract symbols from current gainers/losers
+        gainers_symbols = current_gainers['symbol'].tolist() if not current_gainers.empty else []
+        losers_symbols = current_losers['symbol'].tolist() if not current_losers.empty else []
 
-        # Extract historical data for current gainers/losers
-        historical_gainers = historical_df[historical_df['symbol'].isin(gainers_symbols)]
-        historical_losers = historical_df[historical_df['symbol'].isin(losers_symbols)]
+        # Prepare comparison dataframes
+        gainers_comparison = pd.DataFrame()
+        losers_comparison = pd.DataFrame()
 
-        # Merge dataframes
-        gainers_comparison = pd.merge(
-            current_gainers[['symbol', 'price', 'change_24h', 'volume_24h']],
-            historical_gainers[['symbol', 'change_24h']],
-            on='symbol',
-            suffixes=('_current', '_previous')
-        )
+        # Process gainers comparison
+        if gainers_symbols and not current_gainers.empty:
+            # Extract historical data for current gainers
+            historical_gainers = historical_df[historical_df['symbol'].isin(gainers_symbols)]
 
-        losers_comparison = pd.merge(
-            current_losers[['symbol', 'price', 'change_24h', 'volume_24h']],
-            historical_losers[['symbol', 'change_24h']],
-            on='symbol',
-            suffixes=('_current', '_previous')
-        )
+            if not historical_gainers.empty:
+                # Merge dataframes
+                gainers_comparison = pd.merge(
+                    current_gainers[['symbol', 'price', 'change_24h', 'volume_24h']],
+                    historical_gainers[['symbol', 'change_24h']],
+                    on='symbol',
+                    suffixes=('_current', '_previous'),
+                    how='left'
+                )
 
-        # Calculate acceleration
-        gainers_comparison['acceleration'] = gainers_comparison['change_24h_current'] - gainers_comparison[
-            'change_24h_previous']
-        losers_comparison['acceleration'] = losers_comparison['change_24h_current'] - losers_comparison[
-            'change_24h_previous']
+                # Fill NaN values in previous change with current change (for symbols not in historical data)
+                gainers_comparison['change_24h_previous'].fillna(gainers_comparison['change_24h_current'], inplace=True)
+
+                # Calculate acceleration
+                gainers_comparison['acceleration'] = gainers_comparison['change_24h_current'] - gainers_comparison[
+                    'change_24h_previous']
+            else:
+                # If no historical data for any gainers, create a dataframe with default values
+                gainers_comparison = current_gainers[['symbol', 'price', 'change_24h', 'volume_24h']].copy()
+                gainers_comparison['change_24h_current'] = gainers_comparison['change_24h']
+                gainers_comparison['change_24h_previous'] = gainers_comparison['change_24h']
+                gainers_comparison['acceleration'] = 0.0
+                gainers_comparison.drop('change_24h', axis=1, inplace=True, errors='ignore')
+
+        # Process losers comparison
+        if losers_symbols and not current_losers.empty:
+            # Extract historical data for current losers
+            historical_losers = historical_df[historical_df['symbol'].isin(losers_symbols)]
+
+            if not historical_losers.empty:
+                # Merge dataframes
+                losers_comparison = pd.merge(
+                    current_losers[['symbol', 'price', 'change_24h', 'volume_24h']],
+                    historical_losers[['symbol', 'change_24h']],
+                    on='symbol',
+                    suffixes=('_current', '_previous'),
+                    how='left'
+                )
+
+                # Fill NaN values in previous change with current change (for symbols not in historical data)
+                losers_comparison['change_24h_previous'].fillna(losers_comparison['change_24h_current'], inplace=True)
+
+                # Calculate acceleration
+                losers_comparison['acceleration'] = losers_comparison['change_24h_current'] - losers_comparison[
+                    'change_24h_previous']
+            else:
+                # If no historical data for any losers, create a dataframe with default values
+                losers_comparison = current_losers[['symbol', 'price', 'change_24h', 'volume_24h']].copy()
+                losers_comparison['change_24h_current'] = losers_comparison['change_24h']
+                losers_comparison['change_24h_previous'] = losers_comparison['change_24h']
+                losers_comparison['acceleration'] = 0.0
+                losers_comparison.drop('change_24h', axis=1, inplace=True, errors='ignore')
 
         return gainers_comparison, losers_comparison
 
