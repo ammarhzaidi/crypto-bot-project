@@ -42,7 +42,7 @@ def find_peaks_and_troughs(prices: List[float], smoothing: int = 2) -> Tuple[Lis
 
 
 def detect_hh_hl(prices: List[float], smoothing: int = 2,
-                 consecutive_count: int = 2) -> Dict[str, Any]:
+                 consecutive_count: int = 2, timestamps: Optional[List] = None) -> Dict[str, Any]:
     """
     Detect if there are Higher Highs and Higher Lows in the price series.
 
@@ -54,6 +54,8 @@ def detect_hh_hl(prices: List[float], smoothing: int = 2,
     Returns:
         Dictionary with detection results
     """
+
+
     peak_indices, trough_indices = find_peaks_and_troughs(prices, smoothing)
 
     if len(peak_indices) < consecutive_count or len(trough_indices) < consecutive_count:
@@ -108,6 +110,23 @@ def detect_hh_hl(prices: List[float], smoothing: int = 2,
     # An uptrend is confirmed if both HH and HL are true
     uptrend = higher_highs and higher_lows
 
+    latest_pattern_timestamp = None
+    if timestamps and (higher_highs or higher_lows):
+        # Get the latest peak/trough index
+        latest_indices = []
+        if higher_highs and peak_indices:
+            latest_indices.append(peak_indices[-1])
+        if higher_lows and trough_indices:
+            latest_indices.append(trough_indices[-1])
+
+        if latest_indices:
+            # Get the most recent peak/trough index
+            latest_idx = max(latest_indices)
+            if 0 <= latest_idx < len(timestamps):
+                latest_pattern_timestamp = timestamps[latest_idx]
+
+
+
     return {
         "higher_highs": higher_highs,
         "higher_lows": higher_lows,
@@ -115,12 +134,13 @@ def detect_hh_hl(prices: List[float], smoothing: int = 2,
         "consecutive_hh": consecutive_hh + 1 if higher_highs else 0,
         "consecutive_hl": consecutive_hl + 1 if higher_lows else 0,
         "peaks": list(zip(peak_indices, peaks)),
-        "troughs": list(zip(trough_indices, troughs))
+        "troughs": list(zip(trough_indices, troughs)),
+        "latest_pattern_timestamp": latest_pattern_timestamp
     }
 
 
 def detect_lh_ll(prices: List[float], smoothing: int = 2,
-                 consecutive_count: int = 2) -> Dict[str, Any]:
+                 consecutive_count: int = 2, timestamps: Optional[List] = None) -> Dict[str, Any]:
     """
     Detect if there are Lower Highs and Lower Lows in the price series.
 
@@ -128,6 +148,7 @@ def detect_lh_ll(prices: List[float], smoothing: int = 2,
         prices: List of price values
         smoothing: Number of points to use for finding peaks and troughs
         consecutive_count: Number of consecutive LH/LL required for confirmation
+        timestamps: Optional list of timestamps corresponding to price data points
 
     Returns:
         Dictionary with detection results
@@ -142,7 +163,8 @@ def detect_lh_ll(prices: List[float], smoothing: int = 2,
             "consecutive_lh": 0,
             "consecutive_ll": 0,
             "peaks": [],
-            "troughs": []
+            "troughs": [],
+            "latest_pattern_timestamp": None
         }
 
     # Get the actual price values at peaks and troughs
@@ -186,6 +208,22 @@ def detect_lh_ll(prices: List[float], smoothing: int = 2,
     # A downtrend is confirmed if both LH and LL are true
     downtrend = lower_highs and lower_lows
 
+    # Calculate the timestamp of the latest LH/LL formation
+    latest_pattern_timestamp = None
+    if timestamps and (lower_highs or lower_lows):
+        # Get the latest peak/trough index
+        latest_indices = []
+        if lower_highs and peak_indices:
+            latest_indices.append(peak_indices[-1])
+        if lower_lows and trough_indices:
+            latest_indices.append(trough_indices[-1])
+
+        if latest_indices:
+            # Get the most recent peak/trough index
+            latest_idx = max(latest_indices)
+            if 0 <= latest_idx < len(timestamps):
+                latest_pattern_timestamp = timestamps[latest_idx]
+
     return {
         "lower_highs": lower_highs,
         "lower_lows": lower_lows,
@@ -193,25 +231,18 @@ def detect_lh_ll(prices: List[float], smoothing: int = 2,
         "consecutive_lh": consecutive_lh + 1 if lower_highs else 0,
         "consecutive_ll": consecutive_ll + 1 if lower_lows else 0,
         "peaks": list(zip(peak_indices, peaks)),
-        "troughs": list(zip(trough_indices, troughs))
+        "troughs": list(zip(trough_indices, troughs)),
+        "latest_pattern_timestamp": latest_pattern_timestamp
     }
 
 
 def analyze_price_action(prices: List[float], smoothing: int = 2,
-                         consecutive_count: int = 2) -> Dict[str, Any]:
+                         consecutive_count: int = 2, timestamps: Optional[List] = None) -> Dict[str, Any]:
     """
     Analyze price action for both uptrend and downtrend patterns.
-
-    Args:
-        prices: List of price values
-        smoothing: Number of points to use for finding peaks and troughs
-        consecutive_count: Number of consecutive patterns required for confirmation
-
-    Returns:
-        Dictionary with analysis results
     """
-    uptrend_analysis = detect_hh_hl(prices, smoothing, consecutive_count)
-    downtrend_analysis = detect_lh_ll(prices, smoothing, consecutive_count)
+    uptrend_analysis = detect_hh_hl(prices, smoothing, consecutive_count, timestamps)
+    downtrend_analysis = detect_lh_ll(prices, smoothing, consecutive_count, timestamps)
 
     # Determine overall trend
     if uptrend_analysis["uptrend"] and not downtrend_analysis["downtrend"]:
@@ -223,6 +254,7 @@ def analyze_price_action(prices: List[float], smoothing: int = 2,
     else:
         # This shouldn't happen in theory, but just in case
         trend = "conflicting"
+
 
     return {
         "trend": trend,

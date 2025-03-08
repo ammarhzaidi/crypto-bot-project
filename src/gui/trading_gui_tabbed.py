@@ -717,9 +717,9 @@ class TabbedTradingBotGUI:
 
         # Create treeview with columns based on whether freshness is checked
         if self.check_freshness.get():
-            columns = ("Symbol", "Pattern", "Entry", "TP", "SL", "Side", "Volume 24h", "Freshness")
+            columns = ("Symbol", "Pattern", "Entry", "TP", "SL", "Side", "Volume 24h", "Freshness", "Last Pattern Time")
         else:
-            columns = ("Symbol", "Pattern", "Entry", "TP", "SL", "Side", "Volume 24h")
+            columns = ("Symbol", "Pattern", "Entry", "TP", "SL", "Side", "Volume 24h", "Last Pattern Time")
 
         treeview = ttk.Treeview(frame, columns=columns, show="headings", yscrollcommand=scrollbar.set)
 
@@ -731,6 +731,7 @@ class TabbedTradingBotGUI:
         treeview.heading("SL", text="Stop Loss")
         treeview.heading("Side", text="Side")
         treeview.heading("Volume 24h", text="Volume 24h ($)")
+        treeview.heading("Last Pattern Time", text="Last Pattern Time")
 
         treeview.column("Symbol", width=100)
         treeview.column("Pattern", width=150)
@@ -739,6 +740,7 @@ class TabbedTradingBotGUI:
         treeview.column("SL", width=100)
         treeview.column("Side", width=50)
         treeview.column("Volume 24h", width=120)
+        treeview.column("Last Pattern Time", width=150)
 
         # Add freshness column if needed
         if self.check_freshness.get():
@@ -1343,12 +1345,21 @@ class TabbedTradingBotGUI:
         tp_str = f"${tp:.{decimals}f}"
         sl_str = f"${sl:.{decimals}f}"
 
+        # Prepare result - start with the basic formatted values
+        result = [symbol, pattern, price_str, tp_str, sl_str, side, volume_formatted]
+
+        # Add freshness if present
         if has_freshness:
-            # Return with freshness
-            return symbol, pattern, price_str, tp_str, sl_str, side, volume_formatted, freshness
-        else:
-            # Return without freshness
-            return symbol, pattern, price_str, tp_str, sl_str, side, volume_formatted
+            result.append(freshness)
+
+        # Add timestamp if it's in index 8 (after freshness) or index 7 (no freshness)
+        timestamp_index = 8 if has_freshness else 7
+        if len(data) > timestamp_index:
+            timestamp = data[timestamp_index]
+            result.append(timestamp)
+
+        return tuple(result)
+
 
 
 

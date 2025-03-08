@@ -34,6 +34,7 @@ class HHHLAnalyzer:
                         sl_percent: float = 1.0,
                         timeframe: str = "1h",
                         candles_count: int = 48) -> Tuple[List[Dict], List[Dict], List[str]]:
+
         """
         Analyze multiple symbols for HH/HL patterns.
 
@@ -69,9 +70,10 @@ class HHHLAnalyzer:
 
             # Extract close prices
             close_prices = [candle["close"] for candle in klines]
+            timestamps = [candle["timestamp"] for candle in klines]
 
             # Apply HH/HL strategy
-            result = analyze_price_action(close_prices, smoothing=1, consecutive_count=2)
+            result = analyze_price_action(close_prices, smoothing=1, consecutive_count=2, timestamps=timestamps)
             trend = result["trend"]
 
             # Get current price

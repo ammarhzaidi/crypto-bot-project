@@ -58,9 +58,10 @@ def main():
 
         # Extract close prices
         close_prices = [candle["close"] for candle in klines]
+        timestamps = [candle["timestamp"] for candle in klines]
 
         # Apply HH/HL strategy
-        result = analyze_price_action(close_prices, smoothing=1, consecutive_count=2)
+        result = analyze_price_action(close_prices, smoothing=1, consecutive_count=2, timestamps=timestamps)
         trend = result["trend"]
 
         # Process results

@@ -100,6 +100,9 @@ class AnalysisService:
             candles_count=params.candles_count
         )
 
+        # In the analyze_symbols method in HHHLAnalyzer, the timestamps are handled
+        # and included in the uptrends and downtrends results
+
         # Calculate execution time
         execution_time = time.time() - start_time
 

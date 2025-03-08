@@ -203,7 +203,7 @@ class OKXClient:
                             try:
                                 # OKX candles format: [ts, open, high, low, close, vol, volCcy]
                                 result.append({
-                                    "timestamp": int(candle[0]),
+                                    "timestamp": int(candle[0]),  # Ensure this is properly captured
                                     "open": float(candle[1]),
                                     "high": float(candle[2]),
                                     "low": float(candle[3]),
