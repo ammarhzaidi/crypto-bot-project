@@ -196,57 +196,104 @@ class OKXMarketAnalyzer:
         """
         current_gainers, current_losers = self.get_top_gainers_losers()
 
-        # If we don't have historical data for comparison, just return current data
-        if len(self.historical_data) == 0:
-            self.logger.warning(f"No historical data available for comparison")
+        # Create the MoversRepository to access database
+        from src.repositories.movers_repository import MoversRepository
+        from src.utils.database import DatabaseManager
+        db = DatabaseManager()
+        movers_repo = MoversRepository(db)
 
-            # Create comparison columns with the same values as current
-            if not current_gainers.empty:
-                current_gainers['change_24h_current'] = current_gainers['change_24h']
-                current_gainers['change_24h_previous'] = current_gainers['change_24h']
-                current_gainers['acceleration'] = 0.0
+        # Try to get historical data from database first
+        historical_data = []
+        try:
+            # Get the most recent entry from database that isn't from today
+            today = datetime.now().strftime("%Y-%m-%d")
 
-            if not current_losers.empty:
-                current_losers['change_24h_current'] = current_losers['change_24h']
-                current_losers['change_24h_previous'] = current_losers['change_24h']
-                current_losers['acceleration'] = 0.0
+            # Query for gainers
+            previous_data_result = db.execute_query(
+                """
+                SELECT symbol, change_24h, timestamp
+                FROM top_gainers
+                WHERE DATE(timestamp) < ?
+                ORDER BY timestamp DESC
+                """,
+                (today,)
+            )
 
-            return current_gainers, current_losers
+            if previous_data_result:
+                # Group by symbol to get the most recent entry for each
+                previous_values = {}
+                for row in previous_data_result:
+                    symbol, change, timestamp = row
+                    if symbol not in previous_values:
+                        previous_values[symbol] = (change, timestamp)
 
-        # Find closest historical data point
-        closest_timestamp = None
-        closest_time_diff = float('inf')
+                # Now get the data in the right format
+                if previous_values:
+                    self.logger.info(f"Found {len(previous_values)} symbols with historical data")
+                    historical_df = pd.DataFrame([
+                        {"symbol": symbol, "change_24h": change, "timestamp": ts}
+                        for symbol, (change, ts) in previous_values.items()
+                    ])
+                    historical_data = historical_df
+        except Exception as e:
+            self.logger.error(f"Error getting historical data from database: {str(e)}")
+            # Continue with the original method as fallback
 
-        current_time = datetime.now()
-        for timestamp in self.historical_data.keys():
-            try:
-                data_time = datetime.fromisoformat(timestamp)
-                time_diff = abs((current_time - data_time).total_seconds() / 3600 - hours_ago)
+        # If we don't have historical data from the database, use in-memory data as before
+        if len(historical_data) == 0:
+            if len(self.historical_data) == 0:
+                self.logger.warning(f"No historical data available for comparison")
 
-                if time_diff < closest_time_diff:
-                    closest_time_diff = time_diff
-                    closest_timestamp = timestamp
-            except ValueError:
-                continue
+                # Create comparison columns with the same values as current
+                if not current_gainers.empty:
+                    current_gainers['change_24h_current'] = current_gainers['change_24h']
+                    current_gainers['change_24h_previous'] = current_gainers['change_24h']
+                    current_gainers['acceleration'] = 0.0
 
-        if not closest_timestamp or closest_time_diff > hours_ago * 0.5:  # If no data within 50% of requested time
-            self.logger.warning(f"No historical data found from approximately {hours_ago} hours ago")
+                if not current_losers.empty:
+                    current_losers['change_24h_current'] = current_losers['change_24h']
+                    current_losers['change_24h_previous'] = current_losers['change_24h']
+                    current_losers['acceleration'] = 0.0
 
-            # Create comparison columns with the same values as current
-            if not current_gainers.empty:
-                current_gainers['change_24h_current'] = current_gainers['change_24h']
-                current_gainers['change_24h_previous'] = current_gainers['change_24h']
-                current_gainers['acceleration'] = 0.0
+                return current_gainers, current_losers
 
-            if not current_losers.empty:
-                current_losers['change_24h_current'] = current_losers['change_24h']
-                current_losers['change_24h_previous'] = current_losers['change_24h']
-                current_losers['acceleration'] = 0.0
+            # Find closest historical data point (original logic)
+            closest_timestamp = None
+            closest_time_diff = float('inf')
 
-            return current_gainers, current_losers
+            current_time = datetime.now()
+            for timestamp in self.historical_data.keys():
+                try:
+                    data_time = datetime.fromisoformat(timestamp)
+                    time_diff = abs((current_time - data_time).total_seconds() / 3600 - hours_ago)
 
-        # Get historical data
-        historical_df = self.historical_data[closest_timestamp]
+                    if time_diff < closest_time_diff:
+                        closest_time_diff = time_diff
+                        closest_timestamp = timestamp
+                except ValueError:
+                    continue
+
+            if not closest_timestamp or closest_time_diff > hours_ago * 0.5:
+                self.logger.warning(f"No historical data found from approximately {hours_ago} hours ago")
+
+                # Create comparison columns with the same values as current
+                if not current_gainers.empty:
+                    current_gainers['change_24h_current'] = current_gainers['change_24h']
+                    current_gainers['change_24h_previous'] = current_gainers['change_24h']
+                    current_gainers['acceleration'] = 0.0
+
+                if not current_losers.empty:
+                    current_losers['change_24h_current'] = current_losers['change_24h']
+                    current_losers['change_24h_previous'] = current_losers['change_24h']
+                    current_losers['acceleration'] = 0.0
+
+                return current_gainers, current_losers
+
+            # Get historical data from in-memory store
+            historical_df = self.historical_data[closest_timestamp]
+        else:
+            # Use the data from the database
+            historical_df = historical_data
 
         # Extract symbols from current gainers/losers
         gainers_symbols = current_gainers['symbol'].tolist() if not current_gainers.empty else []
@@ -271,21 +318,30 @@ class OKXMarketAnalyzer:
                     how='left'
                 )
 
-                # Fill NaN values in previous change with current change (for symbols not in historical data)
+                # Mark new symbols
+                gainers_comparison['is_new'] = gainers_comparison['change_24h_previous'].isna()
+
+                # Fill NaN values in previous change - for new symbols, use current value
                 gainers_comparison['change_24h_previous'].fillna(gainers_comparison['change_24h_current'], inplace=True)
 
                 # Calculate acceleration
                 gainers_comparison['acceleration'] = gainers_comparison['change_24h_current'] - gainers_comparison[
                     'change_24h_previous']
+
+                # For new symbols, set acceleration to "New" string
+                gainers_comparison.loc[gainers_comparison['is_new'], 'acceleration'] = "New"
+
+                # Remove the temporary column
+                gainers_comparison.drop('is_new', axis=1, inplace=True, errors='ignore')
             else:
                 # If no historical data for any gainers, create a dataframe with default values
                 gainers_comparison = current_gainers[['symbol', 'price', 'change_24h', 'volume_24h']].copy()
                 gainers_comparison['change_24h_current'] = gainers_comparison['change_24h']
                 gainers_comparison['change_24h_previous'] = gainers_comparison['change_24h']
-                gainers_comparison['acceleration'] = 0.0
+                gainers_comparison['acceleration'] = "New"  # All are new
                 gainers_comparison.drop('change_24h', axis=1, inplace=True, errors='ignore')
 
-        # Process losers comparison
+        # Process losers comparison (similar logic for losers)
         if losers_symbols and not current_losers.empty:
             # Extract historical data for current losers
             historical_losers = historical_df[historical_df['symbol'].isin(losers_symbols)]
@@ -300,18 +356,27 @@ class OKXMarketAnalyzer:
                     how='left'
                 )
 
-                # Fill NaN values in previous change with current change (for symbols not in historical data)
+                # Mark new symbols
+                losers_comparison['is_new'] = losers_comparison['change_24h_previous'].isna()
+
+                # Fill NaN values in previous change
                 losers_comparison['change_24h_previous'].fillna(losers_comparison['change_24h_current'], inplace=True)
 
                 # Calculate acceleration
                 losers_comparison['acceleration'] = losers_comparison['change_24h_current'] - losers_comparison[
                     'change_24h_previous']
+
+                # For new symbols, set acceleration to "New" string
+                losers_comparison.loc[losers_comparison['is_new'], 'acceleration'] = "New"
+
+                # Remove the temporary column
+                losers_comparison.drop('is_new', axis=1, inplace=True, errors='ignore')
             else:
                 # If no historical data for any losers, create a dataframe with default values
                 losers_comparison = current_losers[['symbol', 'price', 'change_24h', 'volume_24h']].copy()
                 losers_comparison['change_24h_current'] = losers_comparison['change_24h']
                 losers_comparison['change_24h_previous'] = losers_comparison['change_24h']
-                losers_comparison['acceleration'] = 0.0
+                losers_comparison['acceleration'] = "New"  # All are new
                 losers_comparison.drop('change_24h', axis=1, inplace=True, errors='ignore')
 
         return gainers_comparison, losers_comparison

@@ -114,6 +114,22 @@ class TopMoversTab:
         self.is_scheduled = False
         self.schedule_interval = 60  # Default to 60 minutes
 
+        # Import the tooltip manager
+        from src.gui.components import get_tooltip_manager
+        self.tooltip_manager = get_tooltip_manager()
+
+        # Store timestamp data for tooltips
+        self.comparison_timestamps = {
+            "current": None,
+            "previous": None,
+            "symbols": {}  # Will store per-symbol timestamps
+        }
+
+        self.log("DEBUG: Tooltip manager initialized")
+
+        # Create main frame
+        self.frame = ttk.Frame(parent, padding="10")
+
         # Create main frame
         self.frame = ttk.Frame(parent, padding="10")
 
@@ -423,6 +439,18 @@ class TopMoversTab:
         self.losers_comp_treeview.tag_configure('positive', background='#E8F5E9')  # Light green
         self.losers_comp_treeview.tag_configure('negative', background='#FFEBEE')  # Light red
 
+        self.log("DEBUG: Adding tooltips to comparison treeviews")
+        self.tooltip_manager.add_treeview_tooltip(
+            self.gainers_comp_treeview,
+            callback=self.get_comparison_tooltip_text
+        )
+
+        self.tooltip_manager.add_treeview_tooltip(
+            self.losers_comp_treeview,
+            callback=self.get_comparison_tooltip_text
+        )
+        self.log("DEBUG: Tooltips added to comparison treeviews")
+
     def create_history_view(self):
         """Create view for historical data."""
         # Create a sub-notebook for history types
@@ -570,6 +598,17 @@ class TopMoversTab:
             # Compare with previous period if requested
             if compare_hours > 0:
                 self.log(f"Comparing with data from {compare_hours} hours ago...")
+
+                # Store timestamps and log them for debugging
+                current_time = datetime.now()
+                previous_time = current_time - timedelta(hours=compare_hours)
+
+                self.comparison_timestamps["current"] = current_time
+                self.comparison_timestamps["previous"] = previous_time
+
+                self.log(f"DEBUG: Set current timestamp to {current_time}")
+                self.log(f"DEBUG: Set previous timestamp to {previous_time}")
+
                 gainers_comparison, losers_comparison = analyzer.compare_with_previous(hours_ago=compare_hours)
 
                 # Update comparison treeviews
@@ -667,11 +706,20 @@ class TopMoversTab:
                 price = f"${row['price']:.4f}"
                 current = f"+{row['change_24h_current']:.2f}%"
                 previous = f"+{row['change_24h_previous']:.2f}%"
-                acceleration = f"{row['acceleration']:+.2f}%"
+
+                # Handle acceleration which might be a string or a number
+                if isinstance(row['acceleration'], (int, float)):
+                    acceleration = f"{row['acceleration']:+.2f}%"
+                else:
+                    acceleration = str(row['acceleration'])  # Handle string case
+
                 volume = self.format_volume(row['volume_24h'])
 
                 # Determine tag based on acceleration
-                tag = 'positive' if row['acceleration'] >= 0 else 'negative'
+                if isinstance(row['acceleration'], (int, float)):
+                    tag = 'positive' if row['acceleration'] >= 0 else 'negative'
+                else:
+                    tag = 'positive'  # Default tag for non-numeric values
 
                 # Insert into treeview
                 self.gainers_comp_treeview.insert(
@@ -680,26 +728,42 @@ class TopMoversTab:
                     tags=(tag,)
                 )
 
-                # Update losers comparison
-                if not losers_comparison.empty:
-                    for _, row in losers_comparison.iterrows():
-                        # Format values
-                        symbol = row['symbol']
-                        price = f"${row['price']:.4f}"
-                        current = f"{row['change_24h_current']:.2f}%"
-                        previous = f"{row['change_24h_previous']:.2f}%"
-                        acceleration = f"{row['acceleration']:+.2f}%"
-                        volume = self.format_volume(row['volume_24h'])
+        # Update losers comparison
+        if not losers_comparison.empty:
+            for _, row in losers_comparison.iterrows():
+                # Format values
+                symbol = row['symbol']
+                price = f"${row['price']:.4f}"
+                current = f"{row['change_24h_current']:.2f}%"
+                previous = f"{row['change_24h_previous']:.2f}%"
 
-                        # Determine tag based on acceleration (for losers, negative acceleration is worse)
-                        tag = 'negative' if row['acceleration'] <= 0 else 'positive'
+                # Handle acceleration which might be a string or a number
+                if isinstance(row['acceleration'], (int, float)):
+                    acceleration = f"{row['acceleration']:+.2f}%"
+                else:
+                    acceleration = str(row['acceleration'])  # Handle string case
 
-                        # Insert into treeview
-                        self.losers_comp_treeview.insert(
-                            "", tk.END,
-                            values=(symbol, price, current, previous, acceleration, volume),
-                            tags=(tag,)
-                        )
+                volume = self.format_volume(row['volume_24h'])
+
+                # Determine tag based on acceleration
+                if isinstance(row['acceleration'], (int, float)):
+                    tag = 'negative' if row['acceleration'] <= 0 else 'positive'
+                else:
+                    tag = 'negative'  # Default tag for non-numeric values
+
+                # Insert into treeview
+                self.losers_comp_treeview.insert(
+                    "", tk.END,
+                    values=(symbol, price, current, previous, acceleration, volume),
+                    tags=(tag,)
+                )
+
+    def get_comparison_tooltip_text(self, item_id, column_id, value):
+        """Simple test tooltip that should always display"""
+        self.log(f"DEBUG: Tooltip callback called for {column_id}")
+
+        # Always return a simple tooltip to confirm it's working
+        return f"Tooltip for column: {column_id}\nCurrent time: {datetime.now().strftime('%H:%M:%S')}"
 
     def save_to_database(self):
         """Save current analysis results to the database."""
@@ -884,18 +948,18 @@ class TopMoversTab:
         return top_movers_tab
 
         # Testing code
-        if __name__ == "__main__":
-            # Create a standalone application for testing
-            root = tk.Tk()
-            root.title("Top Movers Tracker")
-            root.geometry("1000x700")
+    if __name__ == "__main__":
+        # Create a standalone application for testing
+        root = tk.Tk()
+        root.title("Top Movers Tracker")
+        root.geometry("1000x700")
 
-            # Create a notebook
-            notebook = ttk.Notebook(root)
-            notebook.pack(fill=tk.BOTH, expand=True)
+        # Create a notebook
+        notebook = ttk.Notebook(root)
+        notebook.pack(fill=tk.BOTH, expand=True)
 
-            # Create the top movers tab
-            top_movers_tab = create_top_movers_tab(notebook)
+        # Create the top movers tab
+        top_movers_tab = create_top_movers_tab(notebook)
 
-            # Run the application
-            root.mainloop()
+        # Run the application
+        root.mainloop()
