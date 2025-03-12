@@ -446,6 +446,11 @@ class TopMoversTab:
         )
 
         self.tooltip_manager.add_treeview_tooltip(
+            self.gainers_comp_treeview,
+            callback=self.get_comparison_tooltip_text
+        )
+
+        self.tooltip_manager.add_treeview_tooltip(
             self.losers_comp_treeview,
             callback=self.get_comparison_tooltip_text
         )
@@ -596,33 +601,52 @@ class TopMoversTab:
             self.parent.after(0, lambda: self.update_losers_treeview(top_losers))
 
             # Compare with previous period if requested
+            # Compare with previous period if requested
             if compare_hours > 0:
                 self.log(f"Comparing with data from {compare_hours} hours ago...")
 
-                # Store timestamps and log them for debugging
+                # Store current timestamp
                 current_time = datetime.now()
-                previous_time = current_time - timedelta(hours=compare_hours)
-
                 self.comparison_timestamps["current"] = current_time
-                self.comparison_timestamps["previous"] = previous_time
 
-                self.log(f"DEBUG: Set current timestamp to {current_time}")
-                self.log(f"DEBUG: Set previous timestamp to {previous_time}")
-
+                # For each symbol in the comparison, store its timestamp
                 gainers_comparison, losers_comparison = analyzer.compare_with_previous(hours_ago=compare_hours)
+
+                # Store timestamps for each symbol
+                for _, row in gainers_comparison.iterrows():
+                    symbol = row['symbol']
+                    if symbol not in self.comparison_timestamps["symbols"]:
+                        self.comparison_timestamps["symbols"][symbol] = {"previous": None, "current": None}
+
+                    # Set previous timestamp if it exists, otherwise use current time - compare_hours
+                    prev_time = self.comparison_timestamps["symbols"].get(symbol, {}).get("current")
+                    if prev_time is None:
+                        prev_time = current_time - timedelta(hours=compare_hours)
+
+                    # Update timestamps
+                    self.comparison_timestamps["symbols"][symbol] = {
+                        "previous": prev_time,
+                        "current": current_time
+                    }
+
+                # Do the same for losers
+                for _, row in losers_comparison.iterrows():
+                    symbol = row['symbol']
+                    if symbol not in self.comparison_timestamps["symbols"]:
+                        self.comparison_timestamps["symbols"][symbol] = {"previous": None, "current": None}
+
+                    prev_time = self.comparison_timestamps["symbols"].get(symbol, {}).get("current")
+                    if prev_time is None:
+                        prev_time = current_time - timedelta(hours=compare_hours)
+
+                    # Update timestamps
+                    self.comparison_timestamps["symbols"][symbol] = {
+                        "previous": prev_time,
+                        "current": current_time
+                    }
 
                 # Update comparison treeviews
                 self.parent.after(0, lambda: self.update_comparison_treeviews(gainers_comparison, losers_comparison))
-
-            # Update status
-            self.update_status(f"Analysis complete. Found {len(top_gainers)} gainers and {len(top_losers)} losers.")
-
-            # Log completion
-            self.log(f"Analysis complete. Found {len(top_gainers)} gainers and {len(top_losers)} losers.")
-
-            # If in scheduled mode, setup next run
-            if self.is_scheduled:
-                self.schedule_next_run()
 
         except Exception as e:
             self.log(f"Error during analysis: {str(e)}")
@@ -759,11 +783,70 @@ class TopMoversTab:
                 )
 
     def get_comparison_tooltip_text(self, item_id, column_id, value):
-        """Simple test tooltip that should always display"""
-        self.log(f"DEBUG: Tooltip callback called for {column_id}")
+        """Generate tooltip text for comparison data cells with real timestamp data."""
+        # Get the symbol for this row
+        values = self.gainers_comp_treeview.item(item_id, "values")
+        if not values or len(values) < 1:
+            # Try the losers treeview
+            values = self.losers_comp_treeview.item(item_id, "values")
+            if not values or len(values) < 1:
+                return "Symbol not found"
 
-        # Always return a simple tooltip to confirm it's working
-        return f"Tooltip for column: {column_id}\nCurrent time: {datetime.now().strftime('%H:%M:%S')}"
+        symbol = values[0]
+
+        # Get timestamps for this symbol
+        symbol_timestamps = self.comparison_timestamps["symbols"].get(symbol, {})
+
+        if not symbol_timestamps:
+            return "No timestamp data available for this symbol"
+
+        current_ts = symbol_timestamps.get("current")
+        previous_ts = symbol_timestamps.get("previous")
+
+        # Format based on column
+        if "Current" in str(column_id):
+            if current_ts:
+                formatted_ts = current_ts.strftime("%d-%m-%Y, %H:%M:%S")
+                return f"Current data recorded at:\n{formatted_ts}\n(Pakistan time)"
+            else:
+                return "Timestamp not available"
+
+        elif "Previous" in str(column_id):
+            if previous_ts:
+                formatted_ts = previous_ts.strftime("%d-%m-%Y, %H:%M:%S")
+                return f"Previous data recorded at:\n{formatted_ts}\n(Pakistan time)"
+            else:
+                # For new symbols
+                if "New" in str(value):
+                    return "This symbol is new in the comparison"
+                return "Previous timestamp not available"
+
+        elif "Accel" in str(column_id):
+            # Calculate time difference between current and previous
+            if current_ts and previous_ts:
+                time_diff = current_ts - previous_ts
+
+                # Format time difference nicely
+                days = time_diff.days
+                seconds = time_diff.seconds
+                hours, remainder = divmod(seconds, 3600)
+                minutes, seconds = divmod(remainder, 60)
+
+                time_str = ""
+                if days > 0:
+                    time_str += f"{days}d "
+                if hours > 0 or days > 0:
+                    time_str += f"{hours}h "
+                if minutes > 0 or hours > 0 or days > 0:
+                    time_str += f"{minutes}m "
+                time_str += f"{seconds}s"
+
+                return f"Time elapsed between measurements:\n{time_str}"
+            else:
+                return "Time difference cannot be calculated"
+
+        # No tooltip for other columns
+        return None
 
     def save_to_database(self):
         """Save current analysis results to the database."""
@@ -783,6 +866,28 @@ class TopMoversTab:
 
             # Save to database using repository
             success = self.movers_repo.save_top_movers(gainers_df, losers_df)
+
+            # Also save timestamp data to a file for persistence
+            import json
+            import os
+            from datetime import datetime
+
+            # Convert timestamps to strings for JSON serialization
+            timestamp_data = {}
+            for symbol, ts_data in self.comparison_timestamps["symbols"].items():
+                timestamp_data[symbol] = {
+                    "current": ts_data["current"].isoformat() if ts_data["current"] else None,
+                    "previous": ts_data["previous"].isoformat() if ts_data["previous"] else None
+                }
+
+            # Make sure the directory exists
+            os.makedirs("data", exist_ok=True)
+
+            # Save to file
+            with open("data/comparison_timestamps.json", "w") as f:
+                json.dump(timestamp_data, f)
+
+            self.log("Timestamp data saved to file")
 
             if success:
                 self.log("Data saved successfully to database")
@@ -818,6 +923,27 @@ class TopMoversTab:
             # Store the loaded data
             self.current_gainers = gainers_df
             self.current_losers = losers_df
+
+            # Try to load timestamp data from file
+            import json
+            import os
+            from datetime import datetime
+
+            if os.path.exists("data/comparison_timestamps.json"):
+                try:
+                    with open("data/comparison_timestamps.json", "r") as f:
+                        timestamp_data = json.load(f)
+
+                    # Convert ISO format strings back to datetime objects
+                    for symbol, ts_data in timestamp_data.items():
+                        self.comparison_timestamps["symbols"][symbol] = {
+                            "current": datetime.fromisoformat(ts_data["current"]) if ts_data["current"] else None,
+                            "previous": datetime.fromisoformat(ts_data["previous"]) if ts_data["previous"] else None
+                        }
+
+                    self.log("Loaded timestamp data from file")
+                except Exception as e:
+                    self.log(f"Error loading timestamp data: {str(e)}")
 
             # Log success
             timestamp = gainers_df['timestamp'].iloc[0] if not gainers_df.empty else (
