@@ -924,27 +924,6 @@ class TopMoversTab:
             self.current_gainers = gainers_df
             self.current_losers = losers_df
 
-            # Try to load timestamp data from file
-            import json
-            import os
-            from datetime import datetime
-
-            if os.path.exists("data/comparison_timestamps.json"):
-                try:
-                    with open("data/comparison_timestamps.json", "r") as f:
-                        timestamp_data = json.load(f)
-
-                    # Convert ISO format strings back to datetime objects
-                    for symbol, ts_data in timestamp_data.items():
-                        self.comparison_timestamps["symbols"][symbol] = {
-                            "current": datetime.fromisoformat(ts_data["current"]) if ts_data["current"] else None,
-                            "previous": datetime.fromisoformat(ts_data["previous"]) if ts_data["previous"] else None
-                        }
-
-                    self.log("Loaded timestamp data from file")
-                except Exception as e:
-                    self.log(f"Error loading timestamp data: {str(e)}")
-
             # Log success
             timestamp = gainers_df['timestamp'].iloc[0] if not gainers_df.empty else (
                 losers_df['timestamp'].iloc[0] if not losers_df.empty else "Unknown"
