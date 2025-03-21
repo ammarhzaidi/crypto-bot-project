@@ -2,10 +2,10 @@
 Centralized service for running different types of market analysis.
 This service coordinates between data access and analysis algorithms.
 """
-
+import datetime
 from typing import List, Dict, Any, Optional, NamedTuple, Callable
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from src.market_data.okx_client import OKXClient
 from src.analysis.hh_hl_analyzer import HHHLAnalyzer
 from src.analysis.candlestick_analyzer import CandlestickAnalyzer
@@ -40,6 +40,10 @@ class HHHLResult(AnalysisResult):
     uptrends: List[Dict[str, Any]]
     downtrends: List[Dict[str, Any]]
     no_trends: List[str]
+
+
+
+
 
 @dataclass
 class CandlestickResult(AnalysisResult):

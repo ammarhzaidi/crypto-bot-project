@@ -187,149 +187,64 @@ class OKXMarketAnalyzer:
     def compare_with_previous(self, hours_ago: float = 4) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Compare current top gainers/losers with previous period.
-
-        Args:
-            hours_ago: Compare with data from this many hours ago
-
-        Returns:
-            Tuple of (gainers_comparison, losers_comparison) as pandas DataFrames
         """
+        # Get fresh current data from OKX
         current_gainers, current_losers = self.get_top_gainers_losers()
 
-        # Extract symbols from current data
-        gainers_symbols = current_gainers['symbol'].tolist() if not current_gainers.empty else []
-        losers_symbols = current_losers['symbol'].tolist() if not current_losers.empty else []
+        # Get previous data from database
+        db_path = "data/market_data.db"
+        from src.repositories.movers_repository import MoversRepository
+        from src.utils.database import DatabaseManager
 
-        # Get the current timestamp for storage
-        current_time = datetime.now().isoformat()
+        db = DatabaseManager(db_path)
+        movers_repo = MoversRepository(db)
 
-        # Get previous data from historical storage
-        historical_df = None
-        timestamps = list(self.historical_data.keys())
-
-        if len(timestamps) >= 2:
-            # Sort timestamps from newest to oldest and select the second most recent entry
-            timestamps.sort(reverse=True)
-            previous_timestamp = timestamps[1]
-            historical_df = self.historical_data[previous_timestamp]
-            self.logger.info(f"Using historical data from {previous_timestamp}")
-        elif len(timestamps) == 1:
-            # Only one record exists (first run) – treat previous data as unavailable
-            historical_df = None
-            self.logger.info("No previous historical data available; marking as New")
-
-        # Prepare comparison dataframes
-        gainers_comparison = pd.DataFrame()
-        losers_comparison = pd.DataFrame()
+        # Get latest stored data from database
+        previous_gainers, previous_losers = movers_repo.get_latest_movers()
 
         # Process gainers comparison
-        if gainers_symbols and not current_gainers.empty:
-            if historical_df is not None:
-                # Extract historical data for current gainers
-                historical_gainers = historical_df[historical_df['symbol'].isin(gainers_symbols)]
-
-                if not historical_gainers.empty:
-                    # Merge dataframes
-                    gainers_comparison = pd.merge(
-                        current_gainers[['symbol', 'price', 'change_24h', 'volume_24h']],
-                        historical_gainers[['symbol', 'change_24h', 'timestamp']],
-                        on='symbol',
-                        suffixes=('_current', '_previous'),
-                        how='left'
-                    )
-
-                    # Mark new symbols
-                    gainers_comparison['is_new'] = gainers_comparison['change_24h_previous'].isna()
-
-                    # Fill NaN values in previous change - for new symbols, use current value
-                    gainers_comparison['change_24h_previous'].fillna(gainers_comparison['change_24h_current'],
-                                                                     inplace=True)
-
-                    # Calculate acceleration
-                    gainers_comparison['acceleration'] = gainers_comparison['change_24h_current'] - gainers_comparison[
-                        'change_24h_previous']
-
-                    # For new symbols, set acceleration to "New" string
-                    gainers_comparison.loc[gainers_comparison['is_new'], 'acceleration'] = "New"
-                    gainers_comparison.loc[gainers_comparison['is_new'], 'timestamp'] = None
-
-                    # Remove the temporary column
-                    gainers_comparison.drop('is_new', axis=1, inplace=True, errors='ignore')
-                else:
-                    # No historical data for these gainers
-                    gainers_comparison = self._create_default_comparison(current_gainers)
-            else:
-                # No historical data at all
-                gainers_comparison = self._create_default_comparison(current_gainers)
-
-        # Process losers comparison (similar logic for losers)
-        if losers_symbols and not current_losers.empty:
-            if historical_df is not None:
-                # Extract historical data for current losers
-                historical_losers = historical_df[historical_df['symbol'].isin(losers_symbols)]
-
-                if not historical_losers.empty:
-                    # Merge dataframes
-                    losers_comparison = pd.merge(
-                        current_losers[['symbol', 'price', 'change_24h', 'volume_24h']],
-                        historical_losers[['symbol', 'change_24h', 'timestamp']],
-                        on='symbol',
-                        suffixes=('_current', '_previous'),
-                        how='left'
-                    )
-
-                    # Mark new symbols
-                    losers_comparison['is_new'] = losers_comparison['change_24h_previous'].isna()
-
-                    # Fill NaN values in previous change
-                    losers_comparison['change_24h_previous'].fillna(losers_comparison['change_24h_current'],
-                                                                    inplace=True)
-
-                    # Calculate acceleration
-                    losers_comparison['acceleration'] = losers_comparison['change_24h_current'] - losers_comparison[
-                        'change_24h_previous']
-
-                    # For new symbols, set acceleration to "New" string
-                    losers_comparison.loc[losers_comparison['is_new'], 'acceleration'] = "New"
-                    losers_comparison.loc[losers_comparison['is_new'], 'timestamp'] = None
-
-                    # Remove the temporary column
-                    losers_comparison.drop('is_new', axis=1, inplace=True, errors='ignore')
-                else:
-                    # No historical data for these losers
-                    losers_comparison = self._create_default_comparison(current_losers)
-            else:
-                # No historical data at all
-                losers_comparison = self._create_default_comparison(current_losers)
-
-        # Store current data for future comparison
-        combined_data = []
-
-        # Process gainers for storage
+        gainers_comparison = pd.DataFrame()
         if not current_gainers.empty:
-            for _, row in current_gainers.iterrows():
-                combined_data.append({
-                    'symbol': row['symbol'],
-                    'change_24h': row['change_24h'],
-                    'timestamp': current_time
-                })
+            gainers_comparison = current_gainers[['symbol', 'price', 'change_24h', 'volume_24h']].copy()
+            gainers_comparison = gainers_comparison.rename(columns={'change_24h': 'change_24h_current'})
 
-        # Process losers for storage
+            if not previous_gainers.empty:
+                gainers_comparison = gainers_comparison.merge(
+                    previous_gainers[['symbol', 'change_24h']],
+                    on='symbol',
+                    how='left'
+                )
+                gainers_comparison = gainers_comparison.rename(columns={'change_24h': 'change_24h_previous'})
+            else:
+                gainers_comparison['change_24h_previous'] = 'New'
+
+        # Process losers comparison
+        losers_comparison = pd.DataFrame()
         if not current_losers.empty:
-            for _, row in current_losers.iterrows():
-                combined_data.append({
-                    'symbol': row['symbol'],
-                    'change_24h': row['change_24h'],
-                    'timestamp': current_time
-                })
+            losers_comparison = current_losers[['symbol', 'price', 'change_24h', 'volume_24h']].copy()
+            losers_comparison = losers_comparison.rename(columns={'change_24h': 'change_24h_current'})
 
-        # Store in historical data dictionary
-        if combined_data:
-            historical_df = pd.DataFrame(combined_data)
-            self.historical_data[current_time] = historical_df
+            if not previous_losers.empty:
+                losers_comparison = losers_comparison.merge(
+                    previous_losers[['symbol', 'change_24h']],
+                    on='symbol',
+                    how='left'
+                )
+                losers_comparison = losers_comparison.rename(columns={'change_24h': 'change_24h_previous'})
+            else:
+                losers_comparison['change_24h_previous'] = 'New'
 
-            # Clean up old records to prevent memory issues
-            self._cleanup_historical_data(hours=24)
+        # Calculate acceleration for both gainers and losers
+        for comparison in [gainers_comparison, losers_comparison]:
+            if not comparison.empty:
+                comparison['is_new'] = comparison['change_24h_previous'] == 'New'
+                comparison.loc[~comparison['is_new'], 'acceleration'] = \
+                    comparison.loc[~comparison['is_new'], 'change_24h_current'] - \
+                    comparison.loc[~comparison['is_new'], 'change_24h_previous']
+                comparison.loc[comparison['is_new'], 'acceleration'] = 'New'
+
+        # Store current data in database for next comparison
+        movers_repo.save_top_movers(current_gainers, current_losers)
 
         return gainers_comparison, losers_comparison
 

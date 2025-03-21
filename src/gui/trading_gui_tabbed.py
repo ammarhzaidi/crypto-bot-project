@@ -21,6 +21,7 @@ from src.analysis.candlestick_analyzer import CandlestickAnalyzer
 from src.gui.backtest_module import create_backtest_tab
 from src.gui.top_movers_tab import TopMoversTab
 from src.gui.news_tab import NewsTab
+from src.gui.scheduling_tab import SchedulingTab
 
 
 class ToolTip:
@@ -479,27 +480,30 @@ class TabbedTradingBotGUI:
         self.notebook.pack(fill=tk.BOTH, expand=True)
 
         # Create tabs
+        top_movers_frame = ttk.Frame(self.notebook)
+        self.top_movers_tab = TopMoversTab(top_movers_frame, client=self.client)
+
+        scheduling_frame = ttk.Frame(self.notebook)
+        self.scheduling_tab = SchedulingTab(scheduling_frame, self.top_movers_tab)
+
         self.hhhl_tab = ttk.Frame(self.notebook)
         self.candlestick_tab = ttk.Frame(self.notebook)
 
+        # Add backtest tab
+
+        # Create news tab
+        news_frame = ttk.Frame(self.notebook)
+        self.news_tab = NewsTab(news_frame)
+
+        # Add all tabs in order
+        self.notebook.add(scheduling_frame, text="Scheduling")
+        self.notebook.add(top_movers_frame, text="Top Movers")
         self.notebook.add(self.hhhl_tab, text="HH/HL Strategy")
         self.notebook.add(self.candlestick_tab, text="Candlestick Finder")
-
-        # Add backtest tab
         self.backtest_tab = create_backtest_tab(self.notebook, client=self.client)
-
-        # Add top movers tab
-        top_movers_frame = ttk.Frame(self.notebook)
-        self.top_movers_tab = TopMoversTab(top_movers_frame, client=self.client)
-        self.notebook.add(top_movers_frame, text="Top Movers")
-
-        # Add news tab - NEW CODE
-        news_frame = ttk.Frame(self.notebook)
-        from src.gui.news_tab import NewsTab  # Import should be at the top in actual code
-        self.news_tab = NewsTab(news_frame)
         self.notebook.add(news_frame, text="Crypto News")
 
-        # Initialize both tabs
+        # Initialize remaining tabs
         self.init_hhhl_tab()
         self.init_candlestick_tab()
 

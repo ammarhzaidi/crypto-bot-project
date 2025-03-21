@@ -469,6 +469,87 @@ class TopMoversTab:
         self.history_notebook.add(self.frequent_frame, text="Frequent Movers")
         self.history_notebook.add(self.persistent_frame, text="Persistent Movers")
 
+        def load_persistent_movers(self):
+            """Load and display persistent movers data."""
+            try:
+                # Get parameters
+                min_days = self.history_days_var.get()
+
+                self.log(f"Loading persistent movers data (min_days={min_days})...")
+
+                # Get persistent symbols
+                persistent_symbols = self.movers_repo.get_persistent_movers(min_days)
+
+                # Clear current items
+                for item in self.persistent_treeview.get_children():
+                    self.persistent_treeview.delete(item)
+
+                # Update treeview
+                for symbol_data in persistent_symbols:
+                    # Format values
+                    symbol = symbol_data['symbol']
+                    trend = "Uptrend" if symbol_data['trend'] == 'up' else "Downtrend"
+                    days = str(symbol_data['days'])
+                    start_price = f"${symbol_data['start_price']:.4f}"
+                    current_price = f"${symbol_data['current_price']:.4f}"
+                    total_change = f"{symbol_data['total_change']:+.2f}%"
+                    avg_volume = self.format_volume(symbol_data['avg_volume'])
+
+                    # Determine tag based on trend
+                    tag = 'uptrend' if symbol_data['trend'] == 'up' else 'downtrend'
+
+                    # Insert into treeview
+                    self.persistent_treeview.insert(
+                        "", tk.END,
+                        values=(symbol, trend, days, start_price, current_price, total_change, avg_volume),
+                        tags=(tag,)
+                    )
+
+                self.log(f"Loaded {len(persistent_symbols)} persistent movers")
+
+            except Exception as e:
+                self.log(f"Error loading persistent movers data: {str(e)}")
+
+        def create_history_view(self):
+            # Existing code remains the same until persistent_frame creation
+
+            # Create treeview for persistent movers
+            columns = ("Symbol", "Trend", "Days in Trend", "Start Price", "Current Price", "Total Change", "Avg Volume")
+            self.persistent_treeview = ttk.Treeview(
+                self.persistent_frame, columns=columns, show="headings"
+            )
+
+            # Configure columns
+            self.persistent_treeview.heading("Symbol", text="Symbol")
+            self.persistent_treeview.heading("Trend", text="Trend Direction")
+            self.persistent_treeview.heading("Days in Trend", text="Consecutive Days")
+            self.persistent_treeview.heading("Start Price", text="Start Price ($)")
+            self.persistent_treeview.heading("Current Price", text="Current Price ($)")
+            self.persistent_treeview.heading("Total Change", text="Total Change (%)")
+            self.persistent_treeview.heading("Avg Volume", text="Avg Volume ($)")
+
+            # Set column widths
+            self.persistent_treeview.column("Symbol", width=100)
+            self.persistent_treeview.column("Trend", width=100)
+            self.persistent_treeview.column("Days in Trend", width=120, anchor=tk.CENTER)
+            self.persistent_treeview.column("Start Price", width=100, anchor=tk.E)
+            self.persistent_treeview.column("Current Price", width=100, anchor=tk.E)
+            self.persistent_treeview.column("Total Change", width=120, anchor=tk.E)
+            self.persistent_treeview.column("Avg Volume", width=120, anchor=tk.E)
+
+            # Add scrollbar
+            persistent_scroll = ttk.Scrollbar(self.persistent_frame, orient="vertical",
+                                              command=self.persistent_treeview.yview)
+            self.persistent_treeview.configure(yscrollcommand=persistent_scroll.set)
+
+            # Pack elements
+            persistent_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+            self.persistent_treeview.pack(fill=tk.BOTH, expand=True)
+
+            # Configure tags for up/down trends
+            self.persistent_treeview.tag_configure('uptrend', background='#E8F5E9')  # Light green
+            self.persistent_treeview.tag_configure('downtrend', background='#FFEBEE')  # Light red
+
         # Create treeview for frequent movers
         columns = ("Symbol", "Total Count", "Gainer Count", "Loser Count", "Latest Price", "Latest Change")
         self.frequent_treeview = ttk.Treeview(
@@ -947,6 +1028,7 @@ class TopMoversTab:
             # Get frequent symbols
             frequent_symbols = self.movers_repo.get_frequent_symbols(days, min_count)
 
+
             # Clear current items
             for item in self.frequent_treeview.get_children():
                 self.frequent_treeview.delete(item)
@@ -970,6 +1052,8 @@ class TopMoversTab:
 
             # Log results
             self.log(f"Loaded {len(frequent_symbols)} frequent movers")
+
+            self.load_persistent_movers()
 
         except Exception as e:
             self.log(f"Error loading historical data: {str(e)}")

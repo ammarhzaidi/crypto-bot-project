@@ -226,6 +226,69 @@ class MoversRepository:
             self.db.logger.error(f"Error getting movers history: {str(e)}")
             return [], []
 
+    def get_persistent_movers(self, min_days: int = 3) -> List[Dict]:
+        """
+        Get symbols that show persistent directional movement.
+
+        Args:
+            min_days: Minimum consecutive days required to qualify
+
+        Returns:
+            List of dictionaries containing persistent movers data
+        """
+        query = """
+        WITH daily_trends AS (
+            SELECT 
+                symbol,
+                DATE(timestamp) as date,
+                AVG(change_24h) as avg_daily_change,
+                AVG(price) as avg_daily_price,
+                AVG(volume_24h) as avg_daily_volume,
+                CASE WHEN AVG(change_24h) > 0 THEN 'up' ELSE 'down' END as trend
+            FROM market_moves
+            GROUP BY symbol, DATE(timestamp)
+        ),
+        trend_runs AS (
+            SELECT 
+                symbol,
+                trend,
+                COUNT(*) as consecutive_days,
+                MIN(date) as trend_start,
+                MAX(date) as trend_end,
+                FIRST_VALUE(avg_daily_price) OVER (PARTITION BY symbol ORDER BY date) as start_price,
+                LAST_VALUE(avg_daily_price) OVER (PARTITION BY symbol ORDER BY date) as current_price,
+                AVG(avg_daily_volume) as avg_volume
+            FROM daily_trends
+            GROUP BY symbol, trend
+            HAVING COUNT(*) >= ?
+        )
+        SELECT * FROM trend_runs
+        ORDER BY consecutive_days DESC, avg_volume DESC
+        """
+
+        try:
+            cursor = self.db.cursor()
+            cursor.execute(query, (min_days,))
+            results = cursor.fetchall()
+
+            persistent_movers = []
+            for row in results:
+                total_change = ((row['current_price'] - row['start_price']) / row['start_price']) * 100
+                persistent_movers.append({
+                    'symbol': row['symbol'],
+                    'trend': row['trend'],
+                    'days': row['consecutive_days'],
+                    'start_price': row['start_price'],
+                    'current_price': row['current_price'],
+                    'total_change': total_change,
+                    'avg_volume': row['avg_volume']
+                })
+
+            return persistent_movers
+        except Exception as e:
+            self.logger.error(f"Error getting persistent movers: {str(e)}")
+            return []
+
     def get_symbol_appearances(self, symbol: str, days: int = 7) -> Dict[str, Any]:
         """
         Get history of appearances for a specific symbol in top movers.
