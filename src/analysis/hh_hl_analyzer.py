@@ -9,6 +9,8 @@ from src.market_data.okx_client import OKXClient
 from src.strategies.hh_hl_strategy import analyze_price_action
 from src.risk_management.position_sizer import calculate_take_profit, calculate_stop_loss
 from src.analysis.freshness_calculator import calculate_freshness, format_volume
+from src.strategies.hh_hl_strategy import analyze_price_action, get_last_pattern_time
+
 
 
 class HHHLAnalyzer:
@@ -74,7 +76,16 @@ class HHHLAnalyzer:
 
             # Apply HH/HL strategy
             result = analyze_price_action(close_prices, smoothing=1, consecutive_count=2, timestamps=timestamps)
+            last_pattern_time = get_last_pattern_time(timestamps, result)
+
             trend = result["trend"]
+
+
+            # Add the timestamp to your pattern_data dictionary
+            pattern_data = {
+                # ... existing keys ...
+                'last_pattern_time': last_pattern_time
+            }
 
             # Get current price
             ticker = client.get_ticker(symbol)
@@ -112,8 +123,11 @@ class HHHLAnalyzer:
                     'side': 'BUY',
                     'strength': pattern_strength,
                     'volume': volume_24h,
-                    'volume_formatted': volume_formatted
+                    'volume_formatted': volume_formatted,
+                    'last_pattern_time': last_pattern_time  # Add this line
                 }
+                # After creating uptrend_data/downtrend_data
+                self.logger(f"Pattern data with timestamp: {uptrend_data['last_pattern_time']}")
 
                 # Add freshness if required
                 if self.check_freshness:
@@ -152,8 +166,12 @@ class HHHLAnalyzer:
                     'side': 'SELL',
                     'strength': pattern_strength,
                     'volume': volume_24h,
-                    'volume_formatted': volume_formatted
+                    'volume_formatted': volume_formatted,
+                    'last_pattern_time': last_pattern_time  # Add this line
+
                 }
+                # After creating uptrend_data/downtrend_data
+                self.logger(f"Pattern data with timestamp: {uptrend_data['last_pattern_time']}")
 
                 # Add freshness if required
                 if self.check_freshness:

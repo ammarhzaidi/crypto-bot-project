@@ -922,6 +922,9 @@ class TabbedTradingBotGUI:
         Args:
             result: HH/HL analysis result
         """
+        # Add debug logging
+        print("Uptrends data:", result.uptrends)  # See what data is coming through
+
         # Configure tags first
         self.root.after(0, lambda: self.uptrends_treeview.tag_configure("strength3",
                                                                         background="#d4ffcc"))  # Light green
@@ -929,6 +932,10 @@ class TabbedTradingBotGUI:
         self.root.after(0, lambda: self.downtrends_treeview.tag_configure("strength3",
                                                                           background="#ffcccc"))  # Light red
         self.root.after(0, lambda: self.downtrends_treeview.tag_configure("strength2", background="white"))
+
+        # Add debug logging before updating treeviews
+        for trend in result.uptrends:
+            print(f"Uptrend timestamp for {trend['symbol']}: {trend.get('last_pattern_time')}")
 
         # Update uptrends treeview
         for data in result.uptrends:
@@ -1324,6 +1331,9 @@ class TabbedTradingBotGUI:
         Returns:
             Tuple of formatted values
         """
+        # Add debug logging
+        print("Data being formatted:", data)  # See what's reaching the formatter
+
         # Check if freshness is included in the data
         has_freshness = len(data) > 7
 
@@ -1361,6 +1371,11 @@ class TabbedTradingBotGUI:
         if len(data) > timestamp_index:
             timestamp = data[timestamp_index]
             result.append(timestamp)
+
+        if 'last_pattern_time' in data:
+            result.append(data['last_pattern_time'])
+        else:
+            result.append("N/A")
 
         return tuple(result)
 

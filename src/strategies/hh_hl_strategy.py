@@ -1,5 +1,6 @@
 import numpy as np
 from typing import List, Dict, Tuple, Optional, Any
+import pandas as pd
 
 
 def find_peaks_and_troughs(prices: List[float], smoothing: int = 2) -> Tuple[List[int], List[int]]:
@@ -261,6 +262,36 @@ def analyze_price_action(prices: List[float], smoothing: int = 2,
         "uptrend_analysis": uptrend_analysis,
         "downtrend_analysis": downtrend_analysis
     }
+
+
+def get_last_pattern_time(timestamps: List[str], pattern_result: Dict) -> Optional[str]:
+    """
+    Get timestamp of the latest HH/HL formation.
+
+    Args:
+        timestamps: List of timestamps from klines data
+        pattern_result: Result dictionary from analyze_price_action
+
+    Returns:
+        Timestamp of last pattern formation or None if no pattern
+    """
+    if not pattern_result or 'pattern' not in pattern_result:
+        return None
+
+    if pattern_result['pattern'] == 'no_trend':
+        return None
+
+    # Get indices based on pattern type
+    if 'HH' in pattern_result['pattern']:
+        pattern_indices = pattern_result.get('highs', [])
+    else:
+        pattern_indices = pattern_result.get('lows', [])
+
+    # Get timestamp of last formation
+    if pattern_indices:
+        return timestamps[pattern_indices[-1]]
+
+    return None
 
 
 # Example usage
